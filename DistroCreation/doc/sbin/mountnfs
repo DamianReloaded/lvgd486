@@ -1,0 +1,78 @@
+#!/bin/sh
+
+# ============================================================
+# LVGD486 - Mount NFS Share
+# ============================================================
+
+SCRIPT_NAME="${0##*/}"
+
+usage()
+{
+    echo "Usage: $SCRIPT_NAME <IPADDR> <SHARE> <MOUNTPOINT>"
+    echo
+    echo "Mount an NFSv3 share using TCP/UDP defaults."
+    echo
+    echo "Arguments:"
+    echo "  IPADDR       IP address of the NFS server"
+    echo "  SHARE        Exported directory on the NFS server"
+    echo "  MOUNTPOINT   Local directory where the share is mounted"
+    echo
+    echo "Options:"
+    echo "  -h, --help   Show this help message"
+    echo
+    echo "Example:"
+    echo "  $SCRIPT_NAME 192.168.1.100 /srv/nfs/distro /mnt/distro"
+}
+
+fail()
+{
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+# ------------------------------------------------------------
+# Validate arguments
+# ------------------------------------------------------------
+
+if [ "$#" -eq 1 ]; then
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+    esac
+fi
+
+if [ "$#" -ne 3 ]; then
+    usage >&2
+    exit 1
+fi
+
+IPADDR="$1"
+SHARE="$2"
+MOUNTPOINT="$3"
+
+# ------------------------------------------------------------
+# Validate mountpoint
+# ------------------------------------------------------------
+
+[ -d "$MOUNTPOINT" ] ||
+    fail "Mountpoint does not exist: $MOUNTPOINT"
+
+# ------------------------------------------------------------
+# Mount NFS share
+# ------------------------------------------------------------
+
+echo "Mounting NFS share:"
+echo "  Server:     $IPADDR"
+echo "  Share:      $SHARE"
+echo "  Mountpoint: $MOUNTPOINT"
+echo
+
+if mount -t nfs -o nolock,vers=3 "${IPADDR}:${SHARE}" "$MOUNTPOINT"; then
+    echo "SUCCESS: NFS share mounted."
+else
+    fail "Could not mount NFS share."
+fi
+
+exit 0

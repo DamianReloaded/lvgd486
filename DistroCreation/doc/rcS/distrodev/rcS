@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# ============================================================
+# LVGD486 - System Initialization
+# ============================================================
+
+# Mount proc
+mount -t proc proc /proc
+
+# Configure Ethernet using DHCP
+echo "Configuring network interface eth0..."
+
+ifconfig eth0 up
+
+udhcpc -i eth0 -s /usr/share/udhcpc/default.script
+
+echo "DHCP client exited with status $?"
+
+exit 0

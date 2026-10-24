@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# ============================================================
+# LVGD486 - System Initialization
+# ============================================================
+
+mount -t proc proc /proc
+
+# Set the system PATH
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
+export PATH
+
+exit 0

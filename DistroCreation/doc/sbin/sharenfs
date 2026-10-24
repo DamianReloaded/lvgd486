@@ -1,0 +1,275 @@
+#!/bin/sh
+
+# ============================================================
+# LVGD486 - Share a directory over NFS
+# Usage: sharenfs /path/to/directory
+# ============================================================
+
+EXPORTS_FILE="/etc/exports"
+ETH_INTERFACE="eth0"
+NFS_STATE_DIR="/var/lib/nfs"
+NFS_RMTAB="$NFS_STATE_DIR/rmtab"
+
+log()
+{
+    echo "sharenfs: $*"
+}
+
+fail()
+{
+    log "ERROR: $*"
+    exit 1
+}
+
+# Find an executable using the legacy distro's standard paths.
+find_program()
+{
+    for candidate in "$@"; do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Start a daemon only if it is not already running.
+start_daemon()
+{
+    daemon_name="$1"
+    daemon_path="$2"
+
+    if pidof "$daemon_name" >/dev/null 2>&1; then
+        log "$daemon_name is already running"
+        return 0
+    fi
+
+    log "starting $daemon_name"
+
+    "$daemon_path" ||
+        fail "could not start $daemon_name"
+
+    # Give legacy daemons time to initialize.
+    sleep 1
+
+    if ! pidof "$daemon_name" >/dev/null 2>&1; then
+        fail "$daemon_name did not remain running after startup"
+    fi
+}
+
+# ------------------------------------------------------------
+# Validate arguments and permissions.
+# ------------------------------------------------------------
+
+if [ "$(id -u)" != "0" ]; then
+    fail "must be run as root"
+fi
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: sharenfs /path/to/directory"
+    exit 1
+fi
+
+SHARE_PATH="$1"
+
+if [ ! -d "$SHARE_PATH" ]; then
+    fail "directory does not exist: $SHARE_PATH"
+fi
+
+# Resolve the absolute path.
+SHARE_PATH=$(cd "$SHARE_PATH" 2>/dev/null && pwd) ||
+    fail "cannot resolve directory: $1"
+
+# ------------------------------------------------------------
+# Determine the network address.
+# ------------------------------------------------------------
+
+IFCONFIG_BIN=$(find_program /sbin/ifconfig /bin/ifconfig) ||
+    fail "ifconfig executable not found"
+
+ETH_IP=$(
+    "$IFCONFIG_BIN" "$ETH_INTERFACE" 2>/dev/null |
+    sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p'
+)
+
+if [ -z "$ETH_IP" ]; then
+    fail "could not determine IPv4 address for $ETH_INTERFACE"
+fi
+
+# Build the /24 subnet from the interface address.
+OCTETS=$(echo "$ETH_IP" | awk -F. '
+    NF == 4 &&
+    $1 >= 0 && $1 <= 255 &&
+    $2 >= 0 && $2 <= 255 &&
+    $3 >= 0 && $3 <= 255 &&
+    $4 >= 0 && $4 <= 255 {
+        print $1 "." $2 "." $3
+    }
+')
+
+[ -n "$OCTETS" ] || fail "invalid IPv4 address: $ETH_IP"
+
+NETWORK="${OCTETS}.0/24"
+EXPORT_LINE="$SHARE_PATH $NETWORK(rw,sync,no_subtree_check)"
+
+# ------------------------------------------------------------
+# Prepare NFS state directories.
+# ------------------------------------------------------------
+
+if [ ! -d /var/lib ]; then
+    mkdir -p /var/lib ||
+        fail "could not create /var/lib"
+fi
+
+if [ ! -d "$NFS_STATE_DIR" ]; then
+    mkdir -p "$NFS_STATE_DIR" ||
+        fail "could not create $NFS_STATE_DIR"
+
+    log "created NFS state directory: $NFS_STATE_DIR"
+fi
+
+# Preserve the mount table if it already exists.
+if [ ! -f "$NFS_RMTAB" ]; then
+    : > "$NFS_RMTAB" ||
+        fail "could not create $NFS_RMTAB"
+
+    log "created NFS mount table: $NFS_RMTAB"
+fi
+
+# ------------------------------------------------------------
+# Prepare /etc/exports.
+# ------------------------------------------------------------
+
+if [ ! -f "$EXPORTS_FILE" ]; then
+    touch "$EXPORTS_FILE" ||
+        fail "cannot create $EXPORTS_FILE"
+fi
+
+# Detect an existing export for the same directory and network.
+#
+# Supported formats:
+#   /home/share 192.168.1.0/24(rw,sync)
+#   /home/share 192.168.1.0/24
+#   192.168.1.0/24:/home/share
+#
+# Whitespace and export options are ignored for duplicate
+# detection. Comment lines are skipped.
+
+if awk -v path="$SHARE_PATH" -v network="$NETWORK" '
+    /^[[:space:]]*#/ {
+        next
+    }
+
+    {
+        # Standard /etc/exports format:
+        # path client(options) client2(options)
+        if ($1 == path) {
+            for (i = 2; i <= NF; i++) {
+                client = $i
+
+                # Remove any parenthesized export options.
+                sub(/\(.*/, "", client)
+
+                if (client == network) {
+                    found = 1
+                }
+            }
+        }
+
+        # Alternate format:
+        # network:/path
+        for (i = 1; i <= NF; i++) {
+            token = $i
+
+            colon = index(token, ":")
+
+            if (colon > 0) {
+                client = substr(token, 1, colon - 1)
+                exported_path = substr(token, colon + 1)
+
+                # Remove options if attached to the path token.
+                sub(/\(.*/, "", exported_path)
+
+                if (client == network && exported_path == path) {
+                    found = 1
+                }
+            }
+        }
+    }
+
+    END {
+        exit(found ? 0 : 1)
+    }
+' "$EXPORTS_FILE"; then
+    log "export already exists for $SHARE_PATH and $NETWORK"
+else
+    echo "$EXPORT_LINE" >> "$EXPORTS_FILE" ||
+        fail "cannot update $EXPORTS_FILE"
+
+    log "added export: $EXPORT_LINE"
+fi
+
+# ------------------------------------------------------------
+# Locate required programs.
+# ------------------------------------------------------------
+
+PORTMAP_BIN=$(find_program /sbin/portmap /usr/sbin/portmap) ||
+    fail "portmap executable not found"
+
+MOUNTD_BIN=$(find_program /usr/sbin/mountd /sbin/mountd) ||
+    fail "mountd executable not found"
+
+NFSD_BIN=$(find_program /usr/sbin/nfsd /sbin/nfsd) ||
+    fail "nfsd executable not found"
+
+EXPORTFS_BIN=$(find_program /usr/sbin/exportfs /sbin/exportfs) ||
+    fail "exportfs executable not found"
+
+# ------------------------------------------------------------
+# Configure loopback before starting any RPC services.
+# ------------------------------------------------------------
+
+log "configuring loopback interface"
+
+"$IFCONFIG_BIN" lo 127.0.0.1 up ||
+    fail "could not configure loopback interface"
+
+# ------------------------------------------------------------
+# Start Portmap.
+# ------------------------------------------------------------
+
+start_daemon portmap "$PORTMAP_BIN"
+
+# ------------------------------------------------------------
+# Apply exports before starting mountd.
+# ------------------------------------------------------------
+
+log "applying NFS exports"
+
+"$EXPORTFS_BIN" -ra ||
+    fail "exportfs -ra failed"
+
+# ------------------------------------------------------------
+# Start mountd.
+# ------------------------------------------------------------
+
+start_daemon mountd "$MOUNTD_BIN"
+
+# ------------------------------------------------------------
+# Start the kernel NFS server daemon.
+# ------------------------------------------------------------
+
+start_daemon nfsd "$NFSD_BIN"
+
+# ------------------------------------------------------------
+# Report success.
+# ------------------------------------------------------------
+
+log "sharing $SHARE_PATH"
+log "allowed network: $NETWORK"
+log "server address: $ETH_IP"
+log "NFS state directory: $NFS_STATE_DIR"
+log "NFS export configured successfully"
+
+exit 0

@@ -1,0 +1,46 @@
+#!/bin/sh
+
+# ============================================================
+# LVGD486 - udhcpc Default Script
+# ============================================================
+
+RESOLV_CONF="/etc/resolv.conf"
+
+echo "udhcpc: event=$1 interface=$interface"
+
+case "$1" in
+    deconfig)
+        echo "udhcpc: clearing $interface address"
+        ifconfig "$interface" 0.0.0.0
+        ;;
+
+    bound|renew)
+        echo "udhcpc: assigning IP address $ip"
+
+        ifconfig "$interface" "$ip" netmask "${subnet:-255.255.255.0}" up ||
+            echo "udhcpc: WARNING: ifconfig failed"
+
+        if [ -n "$router" ]; then
+            route del default 2>/dev/null
+            for gateway in $router; do
+                echo "udhcpc: adding default gateway $gateway"
+                route add default gw "$gateway" dev "$interface" ||
+                    echo "udhcpc: WARNING: route add failed"
+            done
+        fi
+
+        if [ -n "$dns" ]; then
+            : > "$RESOLV_CONF"
+            for server in $dns; do
+                echo "nameserver $server" >> "$RESOLV_CONF"
+            done
+            echo "udhcpc: DNS configured"
+        fi
+        ;;
+
+    *)
+        echo "udhcpc: unknown event: $1"
+        ;;
+esac
+
+exit 0
