@@ -1,1 +1,0 @@
-.\qemu-img.exe convert -f raw -O vpc distrodev.img distrodev.vhd
