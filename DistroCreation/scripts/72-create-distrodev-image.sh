@@ -7,7 +7,7 @@
 # Image size in MiB. Change this value as required.
 # The MBR partition format imposes a practical limit of
 # approximately 2 TiB with 512-byte sectors.
-IMAGE_SIZE_MB=700
+IMAGE_SIZE_MB=1400
 
 HEADS=16
 SECTORS_PER_TRACK=63

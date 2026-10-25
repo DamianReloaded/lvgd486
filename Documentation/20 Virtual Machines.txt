@@ -1,0 +1,8 @@
+- When adding disk images .img to 86box, remember to auto detect the disk from the bios inside the vm.fdi
+
+- The driver for virtual box ethernet is 
+
+	Network device support --->
+	   [*] Ethernet (1000 Mbit) --->
+		  [*] Intel(R) PRO/1000 Gigabit Ethernet support
+

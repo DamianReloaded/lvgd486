@@ -1,8 +1,17 @@
+
 #!/bin/sh
 
 # ============================================================
 # LVGD486 - Share a directory over NFS
 # Usage: sharenfs /path/to/directory
+#
+# Exports the directory read/write to the local /24 network.
+# Makes existing files and directories writable by everyone.
+#
+# WARNING:
+#   This is intended for a trusted development network.
+#   Permissions are broadened for all local users and NFS
+#   clients. Review the security implications before use.
 # ============================================================
 
 EXPORTS_FILE="/etc/exports"
@@ -21,7 +30,6 @@ fail()
     exit 1
 }
 
-# Find an executable using the legacy distro's standard paths.
 find_program()
 {
     for candidate in "$@"; do
@@ -34,7 +42,6 @@ find_program()
     return 1
 }
 
-# Start a daemon only if it is not already running.
 start_daemon()
 {
     daemon_name="$1"
@@ -50,7 +57,6 @@ start_daemon()
     "$daemon_path" ||
         fail "could not start $daemon_name"
 
-    # Give legacy daemons time to initialize.
     sleep 1
 
     if ! pidof "$daemon_name" >/dev/null 2>&1; then
@@ -77,9 +83,32 @@ if [ ! -d "$SHARE_PATH" ]; then
     fail "directory does not exist: $SHARE_PATH"
 fi
 
-# Resolve the absolute path.
 SHARE_PATH=$(cd "$SHARE_PATH" 2>/dev/null && pwd) ||
     fail "cannot resolve directory: $1"
+
+# ------------------------------------------------------------
+# Make existing shared contents writable.
+#
+# a+rwX:
+#   a  = all users
+#   rw = add read and write permissions
+#   X  = add execute/search permission to directories and
+#        files that already have an execute bit set
+#
+# chmod -R recursively processes files and directories.
+# It does not follow symbolic links to change target
+# permissions on standard POSIX implementations.
+#
+# This adds permissions rather than forcing exact 0777/0666
+# modes, preserving existing executable-file permissions.
+# ------------------------------------------------------------
+
+log "making existing shared contents writable"
+
+chmod -R a+rwX "$SHARE_PATH" ||
+    fail "could not update permissions inside $SHARE_PATH"
+
+log "permissions updated for $SHARE_PATH and its contents"
 
 # ------------------------------------------------------------
 # Determine the network address.
@@ -97,7 +126,6 @@ if [ -z "$ETH_IP" ]; then
     fail "could not determine IPv4 address for $ETH_INTERFACE"
 fi
 
-# Build the /24 subnet from the interface address.
 OCTETS=$(echo "$ETH_IP" | awk -F. '
     NF == 4 &&
     $1 >= 0 && $1 <= 255 &&
@@ -129,7 +157,6 @@ if [ ! -d "$NFS_STATE_DIR" ]; then
     log "created NFS state directory: $NFS_STATE_DIR"
 fi
 
-# Preserve the mount table if it already exists.
 if [ ! -f "$NFS_RMTAB" ]; then
     : > "$NFS_RMTAB" ||
         fail "could not create $NFS_RMTAB"
@@ -146,29 +173,15 @@ if [ ! -f "$EXPORTS_FILE" ]; then
         fail "cannot create $EXPORTS_FILE"
 fi
 
-# Detect an existing export for the same directory and network.
-#
-# Supported formats:
-#   /home/share 192.168.1.0/24(rw,sync)
-#   /home/share 192.168.1.0/24
-#   192.168.1.0/24:/home/share
-#
-# Whitespace and export options are ignored for duplicate
-# detection. Comment lines are skipped.
-
 if awk -v path="$SHARE_PATH" -v network="$NETWORK" '
     /^[[:space:]]*#/ {
         next
     }
 
     {
-        # Standard /etc/exports format:
-        # path client(options) client2(options)
         if ($1 == path) {
             for (i = 2; i <= NF; i++) {
                 client = $i
-
-                # Remove any parenthesized export options.
                 sub(/\(.*/, "", client)
 
                 if (client == network) {
@@ -177,18 +190,13 @@ if awk -v path="$SHARE_PATH" -v network="$NETWORK" '
             }
         }
 
-        # Alternate format:
-        # network:/path
         for (i = 1; i <= NF; i++) {
             token = $i
-
             colon = index(token, ":")
 
             if (colon > 0) {
                 client = substr(token, 1, colon - 1)
                 exported_path = substr(token, colon + 1)
-
-                # Remove options if attached to the path token.
                 sub(/\(.*/, "", exported_path)
 
                 if (client == network && exported_path == path) {
@@ -202,7 +210,57 @@ if awk -v path="$SHARE_PATH" -v network="$NETWORK" '
         exit(found ? 0 : 1)
     }
 ' "$EXPORTS_FILE"; then
+
     log "export already exists for $SHARE_PATH and $NETWORK"
+
+    # Update the matching client options in standard-format
+    # entries while preserving other clients on the same line.
+    TMP_EXPORTS="${EXPORTS_FILE}.sharenfs.$$"
+
+    awk -v path="$SHARE_PATH" -v network="$NETWORK" '
+        /^[[:space:]]*#/ {
+            print
+            next
+        }
+
+        {
+            if ($1 != path) {
+                print
+                next
+            }
+
+            printf "%s", $1
+            found = 0
+
+            for (i = 2; i <= NF; i++) {
+                client = $i
+                base_client = client
+                sub(/\(.*/, "", base_client)
+
+                if (base_client == network) {
+                    if (!found) {
+                        printf " %s(rw,sync,no_subtree_check)", network
+                        found = 1
+                    }
+                } else {
+                    printf " %s", client
+                }
+            }
+
+            if (!found) {
+                printf " %s(rw,sync,no_subtree_check)", network
+            }
+
+            printf "\n"
+        }
+    ' "$EXPORTS_FILE" > "$TMP_EXPORTS" ||
+        fail "could not prepare updated exports file"
+
+    cat "$TMP_EXPORTS" > "$EXPORTS_FILE" ||
+        fail "could not update $EXPORTS_FILE"
+
+    rm -f "$TMP_EXPORTS"
+
 else
     echo "$EXPORT_LINE" >> "$EXPORTS_FILE" ||
         fail "cannot update $EXPORTS_FILE"
@@ -227,7 +285,7 @@ EXPORTFS_BIN=$(find_program /usr/sbin/exportfs /sbin/exportfs) ||
     fail "exportfs executable not found"
 
 # ------------------------------------------------------------
-# Configure loopback before starting any RPC services.
+# Configure loopback.
 # ------------------------------------------------------------
 
 log "configuring loopback interface"
@@ -269,6 +327,8 @@ start_daemon nfsd "$NFSD_BIN"
 log "sharing $SHARE_PATH"
 log "allowed network: $NETWORK"
 log "server address: $ETH_IP"
+log "export permissions: read/write"
+log "existing contents made writable"
 log "NFS state directory: $NFS_STATE_DIR"
 log "NFS export configured successfully"
 

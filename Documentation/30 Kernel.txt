@@ -1,0 +1,9 @@
+
+- When compiling the kernel, initialize the sources with
+
+	make oldconfig
+
+- Then copy an already configured .config and run
+
+	make dep
+	make bzImage

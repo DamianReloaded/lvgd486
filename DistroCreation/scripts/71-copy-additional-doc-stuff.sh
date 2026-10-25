@@ -1,13 +1,16 @@
+
 #!/bin/sh
 
 # ============================================================
-# LVGD486 - Copy Development System Scripts
-# Script: 31-copy-scripts-dev.sh
+# LVGD486 - Copy Development Scripts and other stuff
+# Script: 41-copy-additional-doc-stuff.sh
 # ============================================================
 
 SOURCE_DIR="/home/user/doc/sbin"
+
 DISTRODEV_ROOT="/home/user/distrodev"
 DEST_DIR="${DISTRODEV_ROOT}/sbin"
+SHARE_DIR="${DISTRODEV_ROOT}/usr/share"
 
 fail()
 {
@@ -29,7 +32,8 @@ run()
 # Check prerequisites
 # ------------------------------------------------------------
 
-[ "$(id -u)" -eq 0 ] || fail "Run this script as root."
+[ "$(id -u)" -eq 0 ] ||
+    fail "Run this script as root."
 
 [ -d "$SOURCE_DIR" ] ||
     fail "Source directory not found: $SOURCE_DIR"
@@ -38,7 +42,7 @@ run()
     fail "Development staging root not found: $DISTRODEV_ROOT"
 
 # ------------------------------------------------------------
-# Copy scripts
+# Copy development scripts
 # ------------------------------------------------------------
 
 echo
@@ -66,6 +70,18 @@ done
     fail "No regular files found in $SOURCE_DIR"
 
 echo
-echo "SUCCESS: Copied $FILE_COUNT files to $DEST_DIR."
-echo "SUCCESS: All copied files are executable."
+echo "SUCCESS: Copied $FILE_COUNT scripts to $DEST_DIR."
+echo "SUCCESS: All copied scripts are executable."
+
+# ------------------------------------------------------------
+# Report success
+# ------------------------------------------------------------
+
+echo
+echo "============================================================"
+echo "Development Documentation Files Installed"
+echo "============================================================"
+echo "Scripts:       $DEST_DIR"
+echo "Scripts copied: $FILE_COUNT"
+
 exit 0

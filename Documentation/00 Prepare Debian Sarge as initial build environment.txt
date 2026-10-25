@@ -1,0 +1,37 @@
+Prepare Debian Sarge to function as initial build environment
+
+1. Download Debian Sarge: https://archive.org/details/debian-sarge-r8-32bit
+
+2. Create a virtual machine in VirtualBox. In Settings->Storage move the virtual disk from "Controler: SATA" to "Controller: IDE". Otherwise sarge installation will not be able to partition the virtual disk and fail. Go to Settings->Network and set Attached to: Bridged Adapter, the VM network is configured to your local LAN subnet and you can access samba by issuing the VM ip address in windows ie: \\192.168.1.x\user
+
+	2.1 On windows start menu write optional and run Optional Features-> More Windows Features and enable SMB 1.0 and SMB Direct (so you can access samba shares from this VM)
+
+3. Attach "debian-31r8-i386-binary-1-DVD.iso" to the virtual optical drive so we can boot up the installation.
+
+4. Run the virtual machine, go through the installation process and install debian sarge on the virtual machine. Erase the entire disk, All files in one partition, Finish partitioning and write ethe changes to disk, Yes. Install GRUB: Yes. Finish the installation: Continue.
+
+4. Debian configuration: Set your root password, for ease of use I set everything to "user". New user: "user", passoword: "user".
+
+5. Apt configuration: cdrom. Insert the DVD again in the VM (it was automatically ejected last step). It will ask you for another CD, insert "debian-31r8-i386-binary-2-DVD.iso" and scan it, so both DVDs can be used later to install software without internet. You won't be able to access security updates from the internet because this is an absolete distro.
+
+6. Software Selection: Don't select anything and move on. Say yes to SSH stuff. Configure Exim: No. Local delivery. Enter, enter, enter. Ok. Finish.
+
+7. Login as root
+
+9. apt-get install samba, set your windows workgroup name, usualy "WORKGROUP", password encryption: Yes, WINS: No. Then select daemons. Create samba password database: No. 
+
+10. From the command prompt create a samba user named "user": smbpasswd -e user (password: user)
+
+11. apt-get install mc (useful, set listing mode to brief in both panels and then Options->Save Setup)
+
+12. Go to /etc/samba and edit smb.conf, add this entry at the end of the file to have write permissions on the user folder from Windows:
+
+[user]
+path = /home/user
+browseable = yes
+read only = no
+guest ok = yes
+
+13. From the console run: /etc/init.d/samba restart (now you'll be able to write on the share from windows, remember to activate SMB 1.0 on windows).
+
+14. Configure the kernel with: make ARCH=i386 CC=gcc-3.3 menuconfig

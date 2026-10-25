@@ -1,0 +1,21 @@
+- The driver for virtual box ethernet is 
+
+Network device support --->
+   [*] Ethernet (1000 Mbit) --->
+      [*] Intel(R) PRO/1000 Gigabit Ethernet support
+
+- Setup network
+
+	# set up your ip inside the vm
+	ifconfig eth0 192.168.1.111 up
+
+- Share a folder with nfsd on linux
+
+	- On linux run the script we made: 
+		sharenfs /home/share
+
+	- On windows 11 cmd (not powershell):
+		showmount -e 192.168.1.104
+		mount -o nolock -o mtype=hard \\192.168.1.104\home W:
+	or
+		mount -o nolock -o mtype=soft \\192.168.1.104\home W:

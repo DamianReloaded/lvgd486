@@ -1,8 +1,12 @@
+
 #!/bin/bash
 
 # ============================================================
 # LVGD486 - Install GRUB Legacy to distrodev image
-# Script: 51-grub-distrodev-image.sh
+# Script: 99-grub-distrodev-image.sh
+#
+# Supports disk images of different sizes created by
+# 50-create-distrodev.sh.
 # ============================================================
 
 # ============================================================
@@ -27,14 +31,14 @@ LINUX_ROOT="/dev/hda1"
 KERNEL_PATH="/boot/bzImage"
 KERNEL_PARAMS="rw quiet loglevel=0"
 
-# Must match the 86Box disk geometry.
-CYLINDERS=1422
+# Must match the geometry used by 50-create-distrodev.sh.
 HEADS=16
-SECTORS=63
+SECTORS_PER_TRACK=63
 
-# Must match the partition created by the image creation script.
+SECTOR_SIZE=512
+
+# Partition 1 is created at LBA 63 by 50-create-distrodev.sh.
 EXPECTED_START=63
-EXPECTED_SIZE=1433312
 
 GRUB_LOG="/tmp/grub-install.log"
 MBR_BACKUP="/tmp/grub-mbr-backup.bin"
@@ -47,12 +51,12 @@ set -e
 
 fail()
 {
-    echo "ERROR: $*"
+    echo "ERROR: $*" >&2
     exit 1
 }
 
 for command in grub od awk cmp dd wc tr grep cp mkdir chmod \
-               mount losetup sync; do
+               mount losetup sync id rm cat; do
     command -v "$command" >/dev/null 2>&1 ||
         fail "Required command not found: $command"
 done
@@ -60,9 +64,70 @@ done
 [ "$(id -u)" -eq 0 ] ||
     fail "Run this script as root."
 
-[ -f "$IMAGE" ] || fail "Disk image not found: $IMAGE"
-[ -r "$IMAGE" ] || fail "Image is not readable."
-[ -w "$IMAGE" ] || fail "Image is not writable."
+[ -f "$IMAGE" ] ||
+    fail "Disk image not found: $IMAGE"
+
+[ -r "$IMAGE" ] ||
+    fail "Image is not readable."
+
+[ -w "$IMAGE" ] ||
+    fail "Image is not writable."
+
+# ============================================================
+# Validate image size and derive disk geometry
+# ============================================================
+
+echo "Validating disk image..."
+
+IMAGE_BYTES=$(wc -c < "$IMAGE" | tr -d ' ')
+
+case "$IMAGE_BYTES" in
+    ''|*[!0-9]*)
+        fail "Could not determine image size."
+        ;;
+esac
+
+[ "$IMAGE_BYTES" -gt 0 ] ||
+    fail "Disk image is empty."
+
+[ $((IMAGE_BYTES % SECTOR_SIZE)) -eq 0 ] ||
+    fail "Image size is not a multiple of $SECTOR_SIZE bytes."
+
+IMAGE_SECTORS=$((IMAGE_BYTES / SECTOR_SIZE))
+
+# Derive the whole-cylinder geometry in the same way as
+# 50-create-distrodev.sh.
+#
+# Do not require the image to have a particular size.
+# The final partial cylinder, if any, is excluded from the
+# CHS geometry, as in the image creation script.
+
+set -- $(awk \
+    -v sectors="$IMAGE_SECTORS" \
+    -v heads="$HEADS" \
+    -v spt="$SECTORS_PER_TRACK" '
+BEGIN {
+    spc = heads * spt
+
+    cylinders = int(sectors / spc)
+    geometry_sectors = cylinders * spc
+
+    printf "%.0f\n", cylinders
+    printf "%.0f\n", geometry_sectors
+}')
+
+CYLINDERS=$1
+GEOMETRY_SECTORS=$2
+
+[ "$CYLINDERS" -gt 0 ] ||
+    fail "Image is too small for the configured disk geometry."
+
+echo "Image:            $IMAGE"
+echo "Image size:       $IMAGE_BYTES bytes"
+echo "Image sectors:    $IMAGE_SECTORS"
+echo "CHS geometry:     $CYLINDERS/$HEADS/$SECTORS_PER_TRACK"
+echo "Geometry sectors: $GEOMETRY_SECTORS"
+echo
 
 # ============================================================
 # Verify mounted image partition
@@ -102,10 +167,81 @@ case "$LOOP_INFO" in
 esac
 
 # ============================================================
-# Copy GRUB stage files into the mounted image
+# Validate MBR signature and partition table
 # ============================================================
 
 echo
+echo "Validating MBR..."
+
+SIGNATURE=$(od -An -tx1 -j 510 -N 2 "$IMAGE" | tr -d ' \n')
+
+[ "$SIGNATURE" = "55aa" ] ||
+    fail "Invalid MBR signature: $SIGNATURE"
+
+# Read partition 1 fields from its 16-byte MBR entry.
+PARTITION_TYPE=$(od -An -tu1 -j 450 -N 1 "$IMAGE" | tr -d ' ')
+
+ACTUAL_START=$(
+    od -An -tu1 -j 454 -N 4 "$IMAGE" |
+    awk '{ printf "%.0f\n", $1 + 256*$2 + 65536*$3 + 16777216*$4 }'
+)
+
+ACTUAL_SIZE=$(
+    od -An -tu1 -j 458 -N 4 "$IMAGE" |
+    awk '{ printf "%.0f\n", $1 + 256*$2 + 65536*$3 + 16777216*$4 }'
+)
+
+[ "$PARTITION_TYPE" -eq 131 ] ||
+    fail "Partition 1 is not type 0x83 (Linux)."
+
+[ "$ACTUAL_START" -eq "$EXPECTED_START" ] ||
+    fail "Partition starts at LBA $ACTUAL_START; expected $EXPECTED_START."
+
+[ "$ACTUAL_SIZE" -gt 0 ] ||
+    fail "Partition 1 has zero sectors."
+
+# AWK validates large sector values without depending on
+# potentially overflowing shell arithmetic.
+awk \
+    -v start="$ACTUAL_START" \
+    -v size="$ACTUAL_SIZE" \
+    -v image_sectors="$IMAGE_SECTORS" \
+    -v geometry_sectors="$GEOMETRY_SECTORS" '
+BEGIN {
+    end = start + size
+
+    if (end > 4294967296) {
+        print "ERROR: Partition exceeds the MBR LBA address limit." > "/dev/stderr"
+        exit 1
+    }
+
+    if (end > image_sectors) {
+        print "ERROR: Partition extends beyond the disk image." > "/dev/stderr"
+        exit 1
+    }
+
+    if (end > geometry_sectors) {
+        print "ERROR: Partition extends beyond the configured CHS geometry." > "/dev/stderr"
+        exit 1
+    }
+}
+' || fail "Partition dimensions are invalid."
+
+PARTITION_END=$((ACTUAL_START + ACTUAL_SIZE - 1))
+
+echo "MBR signature:  valid"
+echo "Partition type: Linux (0x83)"
+echo "Partition start: $ACTUAL_START"
+echo "Partition size:  $ACTUAL_SIZE sectors"
+echo "Partition end:   $PARTITION_END"
+echo "Image sectors:   $IMAGE_SECTORS"
+echo "Geometry:        ${CYLINDERS}/${HEADS}/${SECTORS_PER_TRACK}"
+echo
+
+# ============================================================
+# Copy GRUB stage files into the mounted image
+# ============================================================
+
 echo "Copying GRUB stage files into the image..."
 
 [ -d "$GRUB_STAGE_SOURCE" ] ||
@@ -129,75 +265,8 @@ done
 
 sync
 
-echo "GRUB stage files are present in the mounted image."
 echo
-
-# ============================================================
-# Validate image size and geometry
-# ============================================================
-
-IMAGE_BYTES=$(wc -c < "$IMAGE" | tr -d ' ')
-
-[ "$IMAGE_BYTES" -eq 734003200 ] ||
-    fail "Expected a 700 MiB image; found $IMAGE_BYTES bytes."
-
-IMAGE_SECTORS=$((IMAGE_BYTES / 512))
-GEOMETRY_SECTORS=$((CYLINDERS * HEADS * SECTORS))
-
-[ "$IMAGE_SECTORS" -ge "$GEOMETRY_SECTORS" ] ||
-    fail "Image is smaller than the configured disk geometry."
-
-# ============================================================
-# Validate MBR signature
-# ============================================================
-
-echo "Validating MBR..."
-
-SIGNATURE=$(od -An -tx1 -j 510 -N 2 "$IMAGE" | tr -d ' \n')
-
-[ "$SIGNATURE" = "55aa" ] ||
-    fail "Invalid MBR signature: $SIGNATURE"
-
-# ============================================================
-# Read partition table fields
-# ============================================================
-
-PARTITION_TYPE=$(od -An -tu1 -j 450 -N 1 "$IMAGE" | tr -d ' ')
-
-ACTUAL_START=$(
-    od -An -tu1 -j 454 -N 4 "$IMAGE" |
-    awk '{ print $1 + 256*$2 + 65536*$3 + 16777216*$4 }'
-)
-
-ACTUAL_SIZE=$(
-    od -An -tu1 -j 458 -N 4 "$IMAGE" |
-    awk '{ print $1 + 256*$2 + 65536*$3 + 16777216*$4 }'
-)
-
-[ "$PARTITION_TYPE" -eq 131 ] ||
-    fail "Partition 1 is not type 0x83 (Linux)."
-
-[ "$ACTUAL_START" -eq "$EXPECTED_START" ] ||
-    fail "Partition start is $ACTUAL_START, expected $EXPECTED_START."
-
-[ "$ACTUAL_SIZE" -eq "$EXPECTED_SIZE" ] ||
-    fail "Partition size is $ACTUAL_SIZE, expected $EXPECTED_SIZE."
-
-PARTITION_END=$((ACTUAL_START + ACTUAL_SIZE - 1))
-
-[ "$PARTITION_END" -lt "$GEOMETRY_SECTORS" ] ||
-    fail "Partition extends beyond the configured CHS geometry."
-
-[ "$PARTITION_END" -lt "$IMAGE_SECTORS" ] ||
-    fail "Partition extends beyond the image."
-
-echo "MBR signature: valid"
-echo "Partition type: Linux (0x83)"
-echo "Partition start: $ACTUAL_START"
-echo "Partition size: $ACTUAL_SIZE sectors"
-echo "Partition end: $PARTITION_END"
-echo "Image size: $IMAGE_SECTORS sectors"
-echo "Geometry: ${CYLINDERS}/${HEADS}/${SECTORS}"
+echo "GRUB stage files are present in the mounted image."
 echo
 
 # ============================================================
@@ -210,8 +279,8 @@ cat > "$GRUB_DEVICE_MAP" <<EOF
 $GRUB_DISK $IMAGE
 EOF
 
-# Save the complete MBR so we can verify that GRUB preserves
-# the partition table after installing its boot code.
+# Save the original MBR so we can verify that the partition
+# table and signature are preserved after GRUB installation.
 dd if="$IMAGE" of="$MBR_BACKUP" bs=512 count=1 2>/dev/null
 
 # ============================================================
@@ -219,12 +288,12 @@ dd if="$IMAGE" of="$MBR_BACKUP" bs=512 count=1 2>/dev/null
 # ============================================================
 
 echo "Installing GRUB Legacy to image: $IMAGE"
-echo "Geometry: ${CYLINDERS}/${HEADS}/${SECTORS}"
+echo "Geometry: ${CYLINDERS}/${HEADS}/${SECTORS_PER_TRACK}"
 echo
 
 if grub --batch --no-curses \
     --device-map="$GRUB_DEVICE_MAP" > "$GRUB_LOG" 2>&1 <<EOF
-geometry $GRUB_DISK $CYLINDERS $HEADS $SECTORS $GEOMETRY_SECTORS
+geometry $GRUB_DISK $CYLINDERS $HEADS $SECTORS_PER_TRACK $GEOMETRY_SECTORS
 root $GRUB_ROOT
 setup $GRUB_DISK
 quit
@@ -253,8 +322,6 @@ fi
 
 echo "Verifying the MBR after installation..."
 
-dd if="$IMAGE" of="${MBR_BACKUP}.after" bs=512 count=1 2>/dev/null
-
 dd if="$IMAGE" of="${MBR_BACKUP}.partition" \
     bs=1 skip=446 count=66 2>/dev/null
 
@@ -266,22 +333,47 @@ if ! cmp -s "${MBR_BACKUP}.partition" \
     fail "The partition table or MBR signature changed unexpectedly."
 fi
 
-# ============================================================
-# Final report
-# ============================================================
+# Verify the signature independently as well.
+SIGNATURE_AFTER=$(od -An -tx1 -j 510 -N 2 "$IMAGE" | tr -d ' \n')
 
-rm -f "${MBR_BACKUP}.after" \
-      "${MBR_BACKUP}.partition" \
+[ "$SIGNATURE_AFTER" = "55aa" ] ||
+    fail "MBR signature changed unexpectedly."
+
+# Verify that the original partition fields remain unchanged.
+POST_TYPE=$(od -An -tu1 -j 450 -N 1 "$IMAGE" | tr -d ' ')
+
+POST_START=$(
+    od -An -tu1 -j 454 -N 4 "$IMAGE" |
+    awk '{ printf "%.0f\n", $1 + 256*$2 + 65536*$3 + 16777216*$4 }'
+)
+
+POST_SIZE=$(
+    od -An -tu1 -j 458 -N 4 "$IMAGE" |
+    awk '{ printf "%.0f\n", $1 + 256*$2 + 65536*$3 + 16777216*$4 }'
+)
+
+[ "$POST_TYPE" -eq "$PARTITION_TYPE" ] ||
+    fail "Partition type changed after GRUB installation."
+
+[ "$POST_START" -eq "$ACTUAL_START" ] ||
+    fail "Partition start changed after GRUB installation."
+
+[ "$POST_SIZE" -eq "$ACTUAL_SIZE" ] ||
+    fail "Partition size changed after GRUB installation."
+
+rm -f "${MBR_BACKUP}.partition" \
       "${MBR_BACKUP}.original-partition"
 
 echo
 echo "GRUB installation commands completed without reported errors."
-echo "Image:       $IMAGE"
-echo "Mount point: $IMAGE_MOUNT"
+echo "Image:        $IMAGE"
+echo "Image size:   $IMAGE_BYTES bytes"
+echo "Mount point:  $IMAGE_MOUNT"
 echo "Stage source: $GRUB_STAGE_SOURCE"
 echo "Stage target: $GRUB_STAGE_DEST"
-echo "GRUB disk:   $GRUB_DISK"
-echo "GRUB root:   $GRUB_ROOT"
+echo "GRUB disk:    $GRUB_DISK"
+echo "GRUB root:    $GRUB_ROOT"
+echo "Geometry:     ${CYLINDERS}/${HEADS}/${SECTORS_PER_TRACK}"
 echo
 echo "Expected menu.lst entries:"
 echo "  root $GRUB_ROOT"

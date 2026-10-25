@@ -12,12 +12,16 @@ set -e
 # ============================================================
 
 SOURCES_DIR="/home/user/sources"
+BUILD_DIR="${SOURCES_DIR}/build"
+
 LINUX_SOURCE="${SOURCES_DIR}/linux"
 
-BINUTILS_BUILD="${SOURCES_DIR}/build/binutils-2.15"
-GLIBC_BUILD="${SOURCES_DIR}/build/glibc-2.3.2"
-MAKE_BUILD="${SOURCES_DIR}/build/make"
-GCC_BUILD="${SOURCES_DIR}/build/gcc-5.4.0"
+BINUTILS_BUILD="${BUILD_DIR}/binutils-2.15"
+GLIBC_BUILD="${BUILD_DIR}/glibc-2.3.2"
+MAKE_BUILD="${BUILD_DIR}/make"
+
+GCC4_BUILD="${BUILD_DIR}/gcc-4.0.2"
+GCC5_BUILD="${BUILD_DIR}/gcc-5.4.0"
 
 MAKE_EXECUTABLE="/usr/local/bin/make"
 GDB_EXECUTABLE="/usr/local/bin/gdb"
@@ -27,6 +31,15 @@ DISTRODEV_ROOT="/home/user/distrodev"
 
 BINUTILS_VERSION="2.15"
 GLIBC_VERSION="2.3.2"
+MAKE_VERSION="3.81"
+GCC4_VERSION="4.0.2"
+GCC5_VERSION="5.4.0"
+
+# GCC 4.0.2 is the default system compiler.
+GCC4_PREFIX="/usr"
+
+# GCC 5.4.0 is an additional, isolated toolchain.
+GCC5_PREFIX="/usr/local/gcc-5.4.0"
 
 # ============================================================
 # Error handling
@@ -41,13 +54,7 @@ fail()
 run()
 {
     echo "RUN: $*"
-
-    "$@"
-    STATUS=$?
-
-    if [ "$STATUS" -ne 0 ]; then
-        fail "Command failed (exit status $STATUS): $*"
-    fi
+    "$@" || fail "Command failed: $*"
 }
 
 # ============================================================
@@ -67,7 +74,7 @@ run()
     fail "Linux kernel header not found: $LINUX_SOURCE/include/linux/errno.h"
 
 [ -d "$LINUX_SOURCE/include/asm-i386" ] ||
-    fail "Linux 2.4 i386 architecture headers not found: $LINUX_SOURCE/include/asm-i386"
+    fail "Linux 2.4 i386 architecture headers not found."
 
 [ -f "$BINUTILS_BUILD/Makefile" ] ||
     fail "Binutils build directory is not configured: $BINUTILS_BUILD"
@@ -90,8 +97,11 @@ run()
 [ -f "$MAKE_BUILD/Makefile" ] ||
     fail "Make build directory is not configured: $MAKE_BUILD"
 
-[ -f "$GCC_BUILD/Makefile" ] ||
-    fail "GCC build directory is not configured: $GCC_BUILD"
+[ -f "$GCC4_BUILD/Makefile" ] ||
+    fail "GCC 4.0.2 build directory is not configured: $GCC4_BUILD"
+
+[ -f "$GCC5_BUILD/Makefile" ] ||
+    fail "GCC 5.4.0 build directory is not configured: $GCC5_BUILD"
 
 [ -x "$GDB_EXECUTABLE" ] ||
     fail "GDB executable not found: $GDB_EXECUTABLE"
@@ -101,6 +111,42 @@ run()
 
 [ -d "$DISTRODEV_ROOT" ] ||
     fail "Development staging root does not exist: $DISTRODEV_ROOT"
+
+# ============================================================
+# Verify GCC installation prefixes
+#
+# GCC 4.0.2 must be configured with:
+#   --prefix=/usr
+#
+# GCC 5.4.0 must be configured with:
+#   --prefix=/usr/local/gcc-5.4.0
+#
+# DESTDIR stages these prefixes under DISTRODEV_ROOT.
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Checking GCC installation prefixes"
+echo "============================================================"
+
+GCC4_CONFIGURED_PREFIX=$(
+    sed -n 's/^[[:space:]]*prefix[[:space:]]*=[[:space:]]*//p' \
+        "$GCC4_BUILD/Makefile" | head -n 1
+)
+
+GCC5_CONFIGURED_PREFIX=$(
+    sed -n 's/^[[:space:]]*prefix[[:space:]]*=[[:space:]]*//p' \
+        "$GCC5_BUILD/Makefile" | head -n 1
+)
+
+[ "$GCC4_CONFIGURED_PREFIX" = "$GCC4_PREFIX" ] ||
+    fail "GCC 4.0.2 must be configured with --prefix=$GCC4_PREFIX (detected: ${GCC4_CONFIGURED_PREFIX:-unknown})."
+
+[ "$GCC5_CONFIGURED_PREFIX" = "$GCC5_PREFIX" ] ||
+    fail "GCC 5.4.0 must be configured with --prefix=$GCC5_PREFIX (detected: ${GCC5_CONFIGURED_PREFIX:-unknown})."
+
+echo "GCC 4.0.2 prefix: $GCC4_CONFIGURED_PREFIX"
+echo "GCC 5.4.0 prefix: $GCC5_CONFIGURED_PREFIX"
 
 # ============================================================
 # Install Binutils 2.15
@@ -130,16 +176,12 @@ KERNEL_INCLUDE_DIR="$DISTRODEV_ROOT/usr/include"
 run mkdir -p "$KERNEL_INCLUDE_DIR/linux"
 run mkdir -p "$KERNEL_INCLUDE_DIR/asm"
 
-# Copy common Linux headers.
 run cp -a "$LINUX_SOURCE/include/linux/." \
     "$KERNEL_INCLUDE_DIR/linux/"
 
-# Copy i386 architecture headers into the conventional
-# userspace include path.
 run cp -a "$LINUX_SOURCE/include/asm-i386/." \
     "$KERNEL_INCLUDE_DIR/asm/"
 
-# Copy generic architecture headers if present.
 if [ -d "$LINUX_SOURCE/include/asm-generic" ]; then
     run mkdir -p "$KERNEL_INCLUDE_DIR/asm-generic"
 
@@ -175,7 +217,7 @@ run "$MAKE_EXECUTABLE" install_root="$DISTRODEV_ROOT" install
 
 echo
 echo "============================================================"
-echo "Installing GNU Make 3.81"
+echo "Installing GNU Make ${MAKE_VERSION}"
 echo "============================================================"
 
 cd "$MAKE_BUILD" ||
@@ -184,16 +226,30 @@ cd "$MAKE_BUILD" ||
 run "$MAKE_EXECUTABLE" install DESTDIR="$DISTRODEV_ROOT"
 
 # ============================================================
-# Install GCC 5.4.0
+# Install GCC 4.0.2 as the default compiler
 # ============================================================
 
 echo
 echo "============================================================"
-echo "Installing GCC 5.4.0"
+echo "Installing GCC ${GCC4_VERSION} as the default compiler"
 echo "============================================================"
 
-cd "$GCC_BUILD" ||
-    fail "Cannot enter $GCC_BUILD"
+cd "$GCC4_BUILD" ||
+    fail "Cannot enter $GCC4_BUILD"
+
+run "$MAKE_EXECUTABLE" install DESTDIR="$DISTRODEV_ROOT"
+
+# ============================================================
+# Install GCC 5.4.0 as an additional toolchain
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Installing GCC ${GCC5_VERSION} as an additional toolchain"
+echo "============================================================"
+
+cd "$GCC5_BUILD" ||
+    fail "Cannot enter $GCC5_BUILD"
 
 run "$MAKE_EXECUTABLE" install DESTDIR="$DISTRODEV_ROOT"
 
@@ -235,6 +291,54 @@ done
 "$DISTRODEV_ROOT/usr/local/bin/ld" --version
 
 # ============================================================
+# Verify default GCC 4.0.2
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Verifying default GCC ${GCC4_VERSION}"
+echo "============================================================"
+
+GCC4_BIN_DIR="$DISTRODEV_ROOT/usr/bin"
+
+[ -x "$GCC4_BIN_DIR/gcc" ] ||
+    fail "Default GCC not installed: $GCC4_BIN_DIR/gcc"
+
+[ -x "$GCC4_BIN_DIR/g++" ] ||
+    fail "Default G++ not installed: $GCC4_BIN_DIR/g++"
+
+GCC4_ACTUAL_VERSION=$("$GCC4_BIN_DIR/gcc" -dumpversion)
+
+[ "$GCC4_ACTUAL_VERSION" = "$GCC4_VERSION" ] ||
+    fail "Expected default GCC $GCC4_VERSION, found $GCC4_ACTUAL_VERSION"
+
+echo "Default GCC version: $GCC4_ACTUAL_VERSION"
+
+# ============================================================
+# Verify additional GCC 5.4.0
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Verifying additional GCC ${GCC5_VERSION}"
+echo "============================================================"
+
+GCC5_BIN_DIR="$DISTRODEV_ROOT${GCC5_PREFIX}/bin"
+
+[ -x "$GCC5_BIN_DIR/gcc" ] ||
+    fail "Additional GCC not installed: $GCC5_BIN_DIR/gcc"
+
+[ -x "$GCC5_BIN_DIR/g++" ] ||
+    fail "Additional G++ not installed: $GCC5_BIN_DIR/g++"
+
+GCC5_ACTUAL_VERSION=$("$GCC5_BIN_DIR/gcc" -dumpversion)
+
+[ "$GCC5_ACTUAL_VERSION" = "$GCC5_VERSION" ] ||
+    fail "Expected additional GCC $GCC5_VERSION, found $GCC5_ACTUAL_VERSION"
+
+echo "Additional GCC version: $GCC5_ACTUAL_VERSION"
+
+# ============================================================
 # Verify Linux kernel headers
 # ============================================================
 
@@ -249,7 +353,6 @@ echo "============================================================"
 [ -f "$KERNEL_INCLUDE_DIR/asm/errno.h" ] ||
     fail "i386 errno header not installed."
 
-echo "Linux kernel headers verified:"
 ls -l \
     "$KERNEL_INCLUDE_DIR/linux/errno.h" \
     "$KERNEL_INCLUDE_DIR/asm/errno.h"
@@ -305,16 +408,19 @@ echo "glibc runtime library: $GLIBC_RUNTIME"
 
 echo
 echo "============================================================"
-echo "Verifying development toolchain"
+echo "Verifying development tools"
 echo "============================================================"
 
-for TOOL in make gcc g++ gdb gdbserver
+for TOOL in gdb gdbserver
 do
     TOOL_PATH="$DISTRODEV_ROOT/usr/local/bin/$TOOL"
 
     [ -x "$TOOL_PATH" ] ||
         fail "Development tool not installed: $TOOL_PATH"
 done
+
+[ -x "$DISTRODEV_ROOT/usr/local/bin/make" ] ||
+    fail "GNU Make not installed in staging."
 
 # ============================================================
 # Installation summary
@@ -331,10 +437,20 @@ ls -l \
     "$DISTRODEV_ROOT/usr/local/bin/ar" \
     "$DISTRODEV_ROOT/usr/local/bin/ranlib" \
     "$DISTRODEV_ROOT/usr/local/bin/make" \
-    "$DISTRODEV_ROOT/usr/local/bin/gcc" \
-    "$DISTRODEV_ROOT/usr/local/bin/g++" \
+    "$DISTRODEV_ROOT/usr/bin/gcc" \
+    "$DISTRODEV_ROOT/usr/bin/g++" \
     "$DISTRODEV_ROOT/usr/local/bin/gdb" \
-    "$DISTRODEV_ROOT/usr/local/bin/gdbserver"
+    "$DISTRODEV_ROOT/usr/local/bin/gdbserver" \
+    "$DISTRODEV_ROOT${GCC5_PREFIX}/bin/gcc" \
+    "$DISTRODEV_ROOT${GCC5_PREFIX}/bin/g++"
+
+echo
+echo "Default compiler: GCC ${GCC4_VERSION}"
+echo "  ${GCC4_PREFIX}/bin/gcc"
+
+echo
+echo "Additional toolchain: GCC ${GCC5_VERSION}"
+echo "  ${GCC5_PREFIX}/bin/gcc"
 
 echo
 echo "Linux kernel headers:"
@@ -355,6 +471,6 @@ ls -l \
     "$GLIBC_LIB_DIR/libc.so"
 
 echo
-echo "SUCCESS: Development toolchain staged in ${DISTRODEV_ROOT}"
+echo "SUCCESS: Development toolchains staged in ${DISTRODEV_ROOT}"
 
 exit 0
