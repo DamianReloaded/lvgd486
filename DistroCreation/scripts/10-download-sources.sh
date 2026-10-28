@@ -3,6 +3,65 @@
 # ============================================================
 # LVGD486 - Download Source Packages
 # ============================================================
+#
+# Manual Download URLs
+# --------------------
+#
+# Linux kernel 2.4.37.11:
+# https://www.kernel.org/pub/linux/kernel/v2.4/linux-2.4.37.11.tar.bz2
+#
+# BusyBox 1.00:
+# https://busybox.net/downloads/busybox-1.00.tar.bz2
+#
+# GNU Make 3.81:
+# https://ftp.gnu.org/gnu/make/make-3.81.tar.gz
+#
+# GNU Binutils 2.15:
+# https://ftp.gnu.org/gnu/binutils/binutils-2.15.tar.bz2
+#
+# GCC 4.0.2:
+# https://ftp.gnu.org/pub/gnu/gcc/gcc-4.0.2/gcc-4.0.2.tar.bz2
+#
+# GCC 5.4.0:
+# https://ftp.gnu.org/pub/gnu/gcc/gcc-5.4.0/gcc-5.4.0.tar.bz2
+#
+# GDB 6.3 (original source):
+# https://archive.debian.org/debian-archive/debian/pool/main/g/gdb/gdb_6.3.orig.tar.gz
+#
+# GNU C Library 2.3.2:
+# https://ftp.gnu.org/gnu/glibc/glibc-2.3.2.tar.gz
+#
+# LinuxThreads 2.3.2:
+# https://ftp.gnu.org/gnu/glibc/glibc-linuxthreads-2.3.2.tar.gz
+#
+# NFS Utilities 1.0.6 (original source):
+# https://archive.debian.org/debian-archive/debian/pool/main/n/nfs-utils/nfs-utils_1.0.6.orig.tar.gz
+#
+# portmap 5 (original source):
+# https://archive.debian.org/debian-archive/debian/pool/main/p/portmap/portmap_5.orig.tar.gz
+#
+# portmap Debian patch 5-9:
+# https://archive.debian.org/debian-archive/debian/pool/main/p/portmap/portmap_5-9.diff.gz
+#
+# ncurses 5.4 (original source):
+# https://archive.debian.org/debian-archive/debian/pool/main/n/ncurses/ncurses_5.4.orig.tar.gz
+#
+# Bash 2.05b (original source):
+# https://archive.debian.org/debian/pool/main/b/bash/bash_2.05b-2.orig.tar.gz
+#
+# kbd 1.12 (original source):
+# https://archive.debian.org/debian/pool/main/k/kbd/kbd_1.12.orig.tar.gz
+#
+# Midnight Commander 4.6.1 (original source):
+# https://archive.debian.org/debian/pool/main/m/mc/mc_4.6.1.orig.tar.gz
+#
+# GRUB Legacy (original source):
+# https://archive.debian.org/debian/pool/main/g/grub/grub_0.95+cvs20040624.orig.tar.gz
+#
+# e2fsprogs 1.37 (original upstream source):
+# https://archive.debian.org/debian-archive/debian/pool/main/e/e2fsprogs/e2fsprogs_1.37.orig.tar.gz
+#
+# ============================================================
 
 set -e
 
@@ -28,6 +87,8 @@ BASH_VERSION="2.05b"
 BASH_DEBIAN_VERSION="2-26"
 KBD_VERSION="1.12"
 MC_VERSION="4.6.1"
+GRUB_VERSION="0.95+cvs20040624"
+E2FSPROGS_VERSION="1.37"
 
 # ============================================================
 # Archive filenames
@@ -49,6 +110,8 @@ NCURSES_ARCHIVE="ncurses_${NCURSES_VERSION}.orig.tar.gz"
 BASH_ARCHIVE="bash_${BASH_VERSION}-2.orig.tar.gz"
 KBD_ARCHIVE="kbd_${KBD_VERSION}.orig.tar.gz"
 MC_ARCHIVE="mc_${MC_VERSION}.orig.tar.gz"
+GRUB_ARCHIVE="grub_${GRUB_VERSION}.orig.tar.gz"
+E2FSPROGS_ARCHIVE="e2fsprogs_${E2FSPROGS_VERSION}.orig.tar.gz"
 
 # ============================================================
 # Download URLs
@@ -70,6 +133,8 @@ NCURSES_URL="https://archive.debian.org/debian-archive/debian/pool/main/n/ncurse
 BASH_URL="https://archive.debian.org/debian/pool/main/b/bash/${BASH_ARCHIVE}"
 KBD_URL="https://archive.debian.org/debian/pool/main/k/kbd/${KBD_ARCHIVE}"
 MC_URL="https://archive.debian.org/debian/pool/main/m/mc/${MC_ARCHIVE}"
+GRUB_URL="https://archive.debian.org/debian/pool/main/g/grub/${GRUB_ARCHIVE}"
+E2FSPROGS_URL="https://archive.debian.org/debian-archive/debian/pool/main/e/e2fsprogs/${E2FSPROGS_ARCHIVE}"
 
 # ============================================================
 # Create download directory
@@ -98,6 +163,8 @@ wget -c "$NCURSES_URL" || exit 1
 wget -c "$BASH_URL" || exit 1
 wget -c "$KBD_URL" || exit 1
 wget -c "$MC_URL" || exit 1
+wget -c "$GRUB_URL" || exit 1
+wget -c "$E2FSPROGS_URL" || exit 1
 
 # ============================================================
 # Final report
@@ -106,3 +173,5 @@ wget -c "$MC_URL" || exit 1
 echo
 echo "All source archives downloaded successfully."
 echo "Download directory: $DOWNLOAD_DIR"
+echo "GRUB source: $DOWNLOAD_DIR/$GRUB_ARCHIVE"
+echo "E2FSPROGS source: $DOWNLOAD_DIR/$E2FSPROGS_ARCHIVE"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # LVGD486 - Create distrodev root filesystem archive
-set -euo pipefail
+set -eu
 ROOT="${ROOT:-/home/user/distrodev}"
 OUTPUT="${OUTPUT:-/home/user/images/distrodev.tar.gz}"
 [ "$(id -u)" -eq 0 ] || { echo "ERROR: Run as root to preserve ownership and device nodes." >&2; exit 1; }

@@ -28,6 +28,8 @@ NCURSES_VERSION="5.4"
 BASH_VERSION="2.05b"
 KBD_VERSION="1.12"
 MC_VERSION="4.6.1"
+GRUB_VERSION="0.95+cvs20040624"
+E2FSPROGS_VERSION="1.37"
 
 # ============================================================
 # Archive filenames
@@ -50,6 +52,8 @@ BASH_ARCHIVE="bash_${BASH_VERSION}-2.orig.tar.gz"
 BASH_NESTED_ARCHIVE="bash-${BASH_VERSION}.tar.gz"
 KBD_ARCHIVE="kbd_${KBD_VERSION}.orig.tar.gz"
 MC_ARCHIVE="mc_${MC_VERSION}.orig.tar.gz"
+GRUB_ARCHIVE="grub_${GRUB_VERSION}.orig.tar.gz"
+E2FSPROGS_ARCHIVE="e2fsprogs_${E2FSPROGS_VERSION}.orig.tar.gz"
 
 # ============================================================
 # Initialization
@@ -89,7 +93,9 @@ for archive in \
     "$NCURSES_ARCHIVE" \
     "$BASH_ARCHIVE" \
     "$KBD_ARCHIVE" \
-    "$MC_ARCHIVE"
+    "$MC_ARCHIVE" \
+    "$GRUB_ARCHIVE" \
+    "$E2FSPROGS_ARCHIVE"
 do
     [ -s "$archive" ] ||
         fail "Required archive missing or empty: $DOWNLOAD_DIR/$archive"
@@ -138,6 +144,12 @@ tar -xzf "$KBD_ARCHIVE" -C "$SOURCES_DIR"
 echo "Extracting Midnight Commander..."
 tar -xzf "$MC_ARCHIVE" -C "$SOURCES_DIR"
 
+echo "Extracting GRUB Legacy..."
+tar -xzf "$GRUB_ARCHIVE" -C "$SOURCES_DIR"
+
+echo "Extracting e2fsprogs..."
+tar -xzf "$E2FSPROGS_ARCHIVE" -C "$SOURCES_DIR"
+
 # ============================================================
 # Extract Bash source
 # ============================================================
@@ -166,6 +178,7 @@ rm -f "$BASH_NESTED_PATH"
 [ -d "$SOURCES_DIR/bash-${BASH_VERSION}" ] ||
     fail "Extracted Bash source directory not found: $SOURCES_DIR/bash-${BASH_VERSION}"
 
+rm -rf "$SOURCES_DIR/bash"
 mv "$SOURCES_DIR/bash-${BASH_VERSION}" "$SOURCES_DIR/bash"
 
 [ -f "$SOURCES_DIR/bash/configure" ] ||
@@ -177,13 +190,44 @@ echo "Bash source extracted to $SOURCES_DIR/bash"
 # Rename source directories to stable project paths
 # ============================================================
 
-mv "$SOURCES_DIR/linux-${KERNEL_VERSION}" "$SOURCES_DIR/linux"
-mv "$SOURCES_DIR/busybox-${BUSYBOX_VERSION}" "$SOURCES_DIR/busybox"
-mv "$SOURCES_DIR/make-${MAKE_VERSION}" "$SOURCES_DIR/make"
-mv "$SOURCES_DIR/binutils-${BINUTILS_VERSION}" "$SOURCES_DIR/binutils"
-mv "$SOURCES_DIR/gdb-${GDB_VERSION}" "$SOURCES_DIR/gdb"
-mv "$SOURCES_DIR/glibc-${GLIBC_VERSION}" "$SOURCES_DIR/glibc"
-mv "$SOURCES_DIR/nfs-utils-${NFS_UTILS_VERSION}.orig" "$SOURCES_DIR/nfs-utils"
+rename_source()
+{
+    SOURCE_PATH="$1"
+    DEST_PATH="$2"
+
+    [ -d "$SOURCE_PATH" ] ||
+        fail "Source directory not found: $SOURCE_PATH"
+
+    rm -rf "$DEST_PATH"
+    mv "$SOURCE_PATH" "$DEST_PATH"
+}
+
+rename_source "$SOURCES_DIR/linux-${KERNEL_VERSION}" "$SOURCES_DIR/linux"
+rename_source "$SOURCES_DIR/busybox-${BUSYBOX_VERSION}" "$SOURCES_DIR/busybox"
+rename_source "$SOURCES_DIR/make-${MAKE_VERSION}" "$SOURCES_DIR/make"
+rename_source "$SOURCES_DIR/binutils-${BINUTILS_VERSION}" "$SOURCES_DIR/binutils"
+rename_source "$SOURCES_DIR/gdb-${GDB_VERSION}" "$SOURCES_DIR/gdb"
+rename_source "$SOURCES_DIR/glibc-${GLIBC_VERSION}" "$SOURCES_DIR/glibc"
+rename_source "$SOURCES_DIR/nfs-utils-${NFS_UTILS_VERSION}.orig" "$SOURCES_DIR/nfs-utils"
+
+# ============================================================
+# Rename GRUB source directory
+# ============================================================
+
+GRUB_SOURCE_DIR=$(
+    find "$SOURCES_DIR" -maxdepth 1 -type d \
+        -name 'grub-*' ! -name 'grub' | head -n 1
+)
+
+if [ -n "$GRUB_SOURCE_DIR" ]; then
+    rm -rf "$SOURCES_DIR/grub"
+    mv "$GRUB_SOURCE_DIR" "$SOURCES_DIR/grub"
+else
+    fail "Could not locate extracted GRUB source directory."
+fi
+
+[ -f "$SOURCES_DIR/grub/stage2/Makefile.am" ] ||
+    fail "GRUB stage2 build files not found in $SOURCES_DIR/grub"
 
 # ============================================================
 # Rename ncurses source directory
@@ -195,6 +239,7 @@ NCURSES_SOURCE_DIR=$(
 )
 
 if [ -n "$NCURSES_SOURCE_DIR" ]; then
+    rm -rf "$SOURCES_DIR/ncurses"
     mv "$NCURSES_SOURCE_DIR" "$SOURCES_DIR/ncurses"
 else
     fail "Could not locate extracted ncurses source directory."
@@ -210,6 +255,7 @@ PORTMAP_SOURCE_DIR=$(
 )
 
 if [ -n "$PORTMAP_SOURCE_DIR" ]; then
+    rm -rf "$SOURCES_DIR/portmap"
     mv "$PORTMAP_SOURCE_DIR" "$SOURCES_DIR/portmap"
 else
     fail "Could not locate extracted portmap source directory."
@@ -225,6 +271,7 @@ KBD_SOURCE_DIR=$(
 )
 
 if [ -n "$KBD_SOURCE_DIR" ]; then
+    rm -rf "$SOURCES_DIR/kbd"
     mv "$KBD_SOURCE_DIR" "$SOURCES_DIR/kbd"
 else
     fail "Could not locate extracted KBD source directory."
@@ -240,10 +287,30 @@ MC_SOURCE_DIR=$(
 )
 
 if [ -n "$MC_SOURCE_DIR" ]; then
+    rm -rf "$SOURCES_DIR/mc"
     mv "$MC_SOURCE_DIR" "$SOURCES_DIR/mc"
 else
     fail "Could not locate extracted Midnight Commander source directory."
 fi
+
+# ============================================================
+# Rename e2fsprogs source directory
+# ============================================================
+
+E2FSPROGS_SOURCE_DIR=$(
+    find "$SOURCES_DIR" -maxdepth 1 -type d \
+        -name 'e2fsprogs-*' ! -name 'e2fsprogs' | head -n 1
+)
+
+if [ -n "$E2FSPROGS_SOURCE_DIR" ]; then
+    rm -rf "$SOURCES_DIR/e2fsprogs"
+    mv "$E2FSPROGS_SOURCE_DIR" "$SOURCES_DIR/e2fsprogs"
+else
+    fail "Could not locate extracted e2fsprogs source directory."
+fi
+
+[ -f "$SOURCES_DIR/e2fsprogs/configure" ] ||
+    fail "e2fsprogs configure not found at $SOURCES_DIR/e2fsprogs/configure"
 
 # ============================================================
 # Apply Debian portmap patch
@@ -274,7 +341,10 @@ echo "Source directory: $SOURCES_DIR"
 echo
 echo "Bash source: $SOURCES_DIR/bash"
 echo "Bash configure: $SOURCES_DIR/bash/configure"
+echo "GRUB source: $SOURCES_DIR/grub"
 echo "Portmap source: $SOURCES_DIR/portmap"
 echo "Portmap Debian patch applied: $PORTMAP_PATCH"
 echo "KBD source: $SOURCES_DIR/kbd"
 echo "Midnight Commander source: $SOURCES_DIR/mc"
+echo "e2fsprogs source: $SOURCES_DIR/e2fsprogs"
+echo "e2fsprogs configure: $SOURCES_DIR/e2fsprogs/configure"
