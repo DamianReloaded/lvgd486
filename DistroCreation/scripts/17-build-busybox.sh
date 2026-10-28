@@ -1,9 +1,7 @@
-
 #!/bin/sh
 
 # ============================================================
 # LVGD486 - Build BusyBox 1.00
-# Script: 17-build-busybox.sh
 #
 # Build a size-optimized, statically linked BusyBox.
 #
@@ -12,6 +10,7 @@
 #   - Preserve the original configuration file.
 #   - Preserve and verify existing compatibility patches.
 #   - Enable -Os through CONFIG_EXTRA_CFLAGS when available.
+#   - Back up init.c and mark line 244 with //DR:.
 #   - Preserve an unstripped copy of the successful build.
 #   - Strip the final executable.
 #   - Verify version, execution, and static linkage.
@@ -79,6 +78,10 @@ if ! command -v file >/dev/null 2>&1; then
     fail "The file command is required to verify the executable."
 fi
 
+if ! command -v python >/dev/null 2>&1; then
+    fail "Python is required to patch init.c."
+fi
+
 # ------------------------------------------------------------
 # Verify source version
 # ------------------------------------------------------------
@@ -118,10 +121,6 @@ cp "$CONFIG_FILE" "${SOURCE_DIR}/.config"
 
 # ------------------------------------------------------------
 # Enable size optimization when supported by this configuration
-#
-# Use the BusyBox configuration option rather than overriding
-# CFLAGS on the make command line, which could interfere with
-# compiler flags supplied by this older build system.
 # ------------------------------------------------------------
 
 if grep -q '^CONFIG_EXTRA_CFLAGS=' "${SOURCE_DIR}/.config"; then
@@ -150,8 +149,7 @@ fi
 log "Static linking is enabled in .config."
 
 # ------------------------------------------------------------
-# Patch gzip.c build_bl_tree declaration for compiler
-# compatibility
+# Patch gzip.c build_bl_tree declaration for compiler compatibility
 # ------------------------------------------------------------
 
 GZIP_SOURCE="${SOURCE_DIR}/archival/gzip.c"
@@ -177,6 +175,75 @@ if ! grep -q '^static int build_bl_tree(void)' "$GZIP_SOURCE"; then
 fi
 
 log "gzip.c compatibility patch verified."
+
+# ------------------------------------------------------------
+# Back up init.c and mark line 244
+# ------------------------------------------------------------
+
+INIT_SOURCE="${SOURCE_DIR}/init/init.c"
+INIT_BACKUP="${INIT_SOURCE}.bak"
+INIT_LINE=244
+
+if [ ! -f "$INIT_SOURCE" ]; then
+    fail "init.c not found at ${INIT_SOURCE}"
+fi
+
+log "Backing up init.c if necessary..."
+
+if [ ! -f "$INIT_BACKUP" ]; then
+    cp "$INIT_SOURCE" "$INIT_BACKUP"
+    log "Created backup: ${INIT_BACKUP}"
+else
+    log "Existing backup preserved: ${INIT_BACKUP}"
+fi
+
+log "Adding //DR: marker to init.c line ${INIT_LINE}..."
+
+python - "$INIT_SOURCE" "$INIT_LINE" <<'PYTHON'
+import sys
+
+path = sys.argv[1]
+line_number = int(sys.argv[2])
+marker = '//DR: '
+
+f = open(path, 'r')
+lines = f.readlines()
+f.close()
+
+if len(lines) < line_number:
+    sys.stderr.write(
+        "ERROR: init.c has fewer than %d lines.\n" % line_number
+    )
+    sys.exit(1)
+
+line = lines[line_number - 1]
+
+if line.startswith(marker):
+    pass
+else:
+    lines[line_number - 1] = marker + line
+
+    f = open(path, 'w')
+    f.writelines(lines)
+    f.close()
+PYTHON
+
+# Verify that line 244 begins with //DR:.
+
+if ! sed -n "${INIT_LINE}p" "$INIT_SOURCE" | grep -Fq '//DR:'; then
+    fail "Line ${INIT_LINE} of init.c does not begin with //DR:."
+fi
+
+LINE_CONTENT=$(sed -n "${INIT_LINE}p" "$INIT_SOURCE")
+
+case "$LINE_CONTENT" in
+    "//DR: "*)
+        log "init.c line ${INIT_LINE} verified: //DR: marker present."
+        ;;
+    *)
+        fail "Line ${INIT_LINE} of init.c does not begin with //DR:."
+        ;;
+esac
 
 # ------------------------------------------------------------
 # Verify BusyBox 1.00 NFS mount-data argument handling
@@ -250,9 +317,6 @@ fi
 
 # ------------------------------------------------------------
 # Preserve unstripped executable
-#
-# Keep the backup outside the source directory so it cannot
-# be confused with the BusyBox build target.
 # ------------------------------------------------------------
 
 log "Saving unstripped executable..."
@@ -304,6 +368,7 @@ if ! file "${SOURCE_DIR}/busybox" | grep -qi 'statically linked'; then
 fi
 
 # Verify that the executable reports its expected version.
+
 VERSION_OUTPUT=$("${SOURCE_DIR}/busybox" 2>&1 || true)
 
 if ! echo "$VERSION_OUTPUT" | grep -Fq "$BUSYBOX_VERSION"; then

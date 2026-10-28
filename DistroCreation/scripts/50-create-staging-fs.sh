@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Create Staging Filesystems
-# Script: 18-create-staging-fs.sh
 # ============================================================
 
 BUSYBOX_SOURCE="/home/user/sources/busybox/busybox"
@@ -85,7 +84,7 @@ create_staging_root()
         "$ROOT/usr/bin" "$ROOT/usr/sbin" \
         "$ROOT/usr/lib" "$ROOT/usr/share" \
         "$ROOT/lib" "$ROOT/root" "$ROOT/home" \
-        "$ROOT/mnt" "$ROOT/opt"
+        "$ROOT/mnt" "$ROOT/opt" "$ROOT/games/lvgd/demos"
 
     # Clear existing BusyBox files and links in /bin.
     echo "Cleaning $ROOT/bin"

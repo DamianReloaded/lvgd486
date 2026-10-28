@@ -3,7 +3,6 @@
 
 # ============================================================
 # LVGD486 - Build GCC 5.4.0
-# Script: 15-build-gcc5.sh
 #
 # Bootstrap compiler: GCC 4.0.2
 # Default distro compiler: GCC 4.0.2

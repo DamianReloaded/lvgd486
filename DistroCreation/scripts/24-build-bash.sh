@@ -3,7 +3,6 @@
 
 # ============================================================
 # LVGD486 - Build Bash 2.05b
-# Script: 24-build-bash.sh
 #
 # Build Bash using GCC 3.3 with size optimization and static
 # linking. Strip debug and symbol information after verification.

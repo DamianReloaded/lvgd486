@@ -1,9 +1,7 @@
-
 #!/bin/sh
 
 # ============================================================
 # LVGD486 - Install Bash 2.05b
-# Script: 30-install-bash.sh
 #
 # Install the statically linked Bash executable into the
 # distro development staging tree.

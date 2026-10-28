@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Install Kernel Sources
-# Script: 62-install-kernel-sources.sh
 #
 # Extract the Linux kernel sources into the development distro
 # and install the saved kernel configuration.

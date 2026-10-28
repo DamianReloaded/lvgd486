@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Build KBD (Static)
-# Script: 25-build-kbd.sh
 #
 # Compile KBD 1.12 from a clean build directory.
 #

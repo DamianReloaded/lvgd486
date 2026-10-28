@@ -1,13 +1,11 @@
-
 #!/bin/bash
 
 # ============================================================
 # LVGD486 - Install GRUB Legacy to distrodev image
-# Script: 99-grub-distrodev-image.sh
-#
-# Supports disk images of different sizes created by
-# 50-create-distrodev.sh.
+# Supports disk images of different sizes
 # ============================================================
+
+set -e
 
 # ============================================================
 # Configuration
@@ -19,7 +17,8 @@ IMAGE="/home/user/images/${NAME}.img"
 IMAGE_MOUNT="/mnt/${NAME}"
 LOOP_DEVICE="/dev/loop1"
 
-GRUB_STAGE_SOURCE="/home/user/doc/grub-stage-files"
+GRUB_STAGE_DOC="/home/user/doc/grub-stage-files"
+GRUB_STAGE_SOURCE="/home/user/distrodev/boot/grub"
 GRUB_STAGE_DEST="${IMAGE_MOUNT}/boot/grub"
 
 GRUB_DEVICE_MAP="/tmp/grub-disk.map"
@@ -31,29 +30,27 @@ LINUX_ROOT="/dev/hda1"
 KERNEL_PATH="/boot/bzImage"
 KERNEL_PARAMS="rw quiet loglevel=0"
 
-# Must match the geometry used by 50-create-distrodev.sh.
 HEADS=16
 SECTORS_PER_TRACK=63
-
 SECTOR_SIZE=512
-
-# Partition 1 is created at LBA 63 by 50-create-distrodev.sh.
 EXPECTED_START=63
 
 GRUB_LOG="/tmp/grub-install.log"
 MBR_BACKUP="/tmp/grub-mbr-backup.bin"
 
 # ============================================================
-# Initialization
+# Functions
 # ============================================================
-
-set -e
 
 fail()
 {
     echo "ERROR: $*" >&2
     exit 1
 }
+
+# ============================================================
+# Check prerequisites
+# ============================================================
 
 for command in grub od awk cmp dd wc tr grep cp mkdir chmod \
                mount losetup sync id rm cat; do
@@ -72,6 +69,9 @@ done
 
 [ -w "$IMAGE" ] ||
     fail "Image is not writable."
+
+[ -d "$GRUB_STAGE_DOC" ] ||
+    fail "GRUB documentation directory not found: $GRUB_STAGE_DOC"
 
 # ============================================================
 # Validate image size and derive disk geometry
@@ -95,20 +95,12 @@ esac
 
 IMAGE_SECTORS=$((IMAGE_BYTES / SECTOR_SIZE))
 
-# Derive the whole-cylinder geometry in the same way as
-# 50-create-distrodev.sh.
-#
-# Do not require the image to have a particular size.
-# The final partial cylinder, if any, is excluded from the
-# CHS geometry, as in the image creation script.
-
 set -- $(awk \
     -v sectors="$IMAGE_SECTORS" \
     -v heads="$HEADS" \
     -v spt="$SECTORS_PER_TRACK" '
 BEGIN {
     spc = heads * spt
-
     cylinders = int(sectors / spc)
     geometry_sectors = cylinders * spc
 
@@ -147,9 +139,6 @@ MOUNT_SOURCE=$(awk -v target="$IMAGE_MOUNT" \
 LOOP_INFO=$(losetup "$LOOP_DEVICE" 2>/dev/null) ||
     fail "$LOOP_DEVICE is not configured."
 
-echo "Mounted source: $MOUNT_SOURCE"
-echo "Loop device:    $LOOP_INFO"
-
 case "$MOUNT_SOURCE" in
     "$LOOP_DEVICE"|"$LOOP_DEVICE"p1)
         ;;
@@ -166,11 +155,14 @@ case "$LOOP_INFO" in
         ;;
 esac
 
+echo "Mounted source: $MOUNT_SOURCE"
+echo "Loop device:    $LOOP_INFO"
+echo
+
 # ============================================================
 # Validate MBR signature and partition table
 # ============================================================
 
-echo
 echo "Validating MBR..."
 
 SIGNATURE=$(od -An -tx1 -j 510 -N 2 "$IMAGE" | tr -d ' \n')
@@ -178,7 +170,6 @@ SIGNATURE=$(od -An -tx1 -j 510 -N 2 "$IMAGE" | tr -d ' \n')
 [ "$SIGNATURE" = "55aa" ] ||
     fail "Invalid MBR signature: $SIGNATURE"
 
-# Read partition 1 fields from its 16-byte MBR entry.
 PARTITION_TYPE=$(od -An -tu1 -j 450 -N 1 "$IMAGE" | tr -d ' ')
 
 ACTUAL_START=$(
@@ -200,8 +191,6 @@ ACTUAL_SIZE=$(
 [ "$ACTUAL_SIZE" -gt 0 ] ||
     fail "Partition 1 has zero sectors."
 
-# AWK validates large sector values without depending on
-# potentially overflowing shell arithmetic.
 awk \
     -v start="$ACTUAL_START" \
     -v size="$ACTUAL_SIZE" \
@@ -229,48 +218,65 @@ BEGIN {
 
 PARTITION_END=$((ACTUAL_START + ACTUAL_SIZE - 1))
 
-echo "MBR signature:  valid"
-echo "Partition type: Linux (0x83)"
+echo "MBR signature:   valid"
+echo "Partition type:  Linux (0x83)"
 echo "Partition start: $ACTUAL_START"
 echo "Partition size:  $ACTUAL_SIZE sectors"
 echo "Partition end:   $PARTITION_END"
-echo "Image sectors:   $IMAGE_SECTORS"
-echo "Geometry:        ${CYLINDERS}/${HEADS}/${SECTORS_PER_TRACK}"
 echo
 
 # ============================================================
-# Copy GRUB stage files into the mounted image
+# Copy all GRUB files through staging into the image
 # ============================================================
 
-echo "Copying GRUB stage files into the image..."
+echo "Copying GRUB files into staging and image..."
 
-[ -d "$GRUB_STAGE_SOURCE" ] ||
-    fail "GRUB stage source directory not found: $GRUB_STAGE_SOURCE"
-
+mkdir -p "$GRUB_STAGE_SOURCE"
 mkdir -p "$GRUB_STAGE_DEST"
 
-for file in stage1 stage2 e2fs_stage1_5; do
-    [ -s "${GRUB_STAGE_SOURCE}/${file}" ] ||
-        fail "Missing or empty source stage file: ${GRUB_STAGE_SOURCE}/${file}"
+FILE_COUNT=0
 
-    cp "${GRUB_STAGE_SOURCE}/${file}" "${GRUB_STAGE_DEST}/${file}"
-    chmod 0644 "${GRUB_STAGE_DEST}/${file}"
+for FILE in "$GRUB_STAGE_DOC"/*
+do
+    [ -f "$FILE" ] || continue
 
-    cmp -s "${GRUB_STAGE_SOURCE}/${file}" \
-           "${GRUB_STAGE_DEST}/${file}" ||
-        fail "Stage file verification failed: $file"
+    FILENAME="${FILE##*/}"
 
-    echo "Installed and verified: $file"
+    # Documentation source to staging.
+    cp "$FILE" "${GRUB_STAGE_SOURCE}/${FILENAME}"
+    chmod 0644 "${GRUB_STAGE_SOURCE}/${FILENAME}"
+
+    cmp -s "$FILE" "${GRUB_STAGE_SOURCE}/${FILENAME}" ||
+        fail "Staging verification failed: $FILENAME"
+
+    echo "Staged: $FILENAME"
+
+    # Staging source to mounted image.
+    cp "${GRUB_STAGE_SOURCE}/${FILENAME}" \
+       "${GRUB_STAGE_DEST}/${FILENAME}"
+
+    chmod 0644 "${GRUB_STAGE_DEST}/${FILENAME}"
+
+    cmp -s "${GRUB_STAGE_SOURCE}/${FILENAME}" \
+           "${GRUB_STAGE_DEST}/${FILENAME}" ||
+        fail "Image verification failed: $FILENAME"
+
+    echo "Installed in image: $FILENAME"
+
+    FILE_COUNT=$((FILE_COUNT + 1))
 done
+
+[ "$FILE_COUNT" -gt 0 ] ||
+    fail "No regular files found in $GRUB_STAGE_DOC"
 
 sync
 
 echo
-echo "GRUB stage files are present in the mounted image."
+echo "Copied and verified $FILE_COUNT GRUB files."
 echo
 
 # ============================================================
-# Prepare GRUB device map
+# Prepare GRUB device map and back up MBR
 # ============================================================
 
 echo "Creating GRUB device map..."
@@ -279,8 +285,6 @@ cat > "$GRUB_DEVICE_MAP" <<EOF
 $GRUB_DISK $IMAGE
 EOF
 
-# Save the original MBR so we can verify that the partition
-# table and signature are preserved after GRUB installation.
 dd if="$IMAGE" of="$MBR_BACKUP" bs=512 count=1 2>/dev/null
 
 # ============================================================
@@ -307,9 +311,8 @@ fi
 cat "$GRUB_LOG"
 echo
 
-if [ "$GRUB_EXIT" -ne 0 ]; then
+[ "$GRUB_EXIT" -eq 0 ] ||
     fail "GRUB exited with status $GRUB_EXIT. See $GRUB_LOG"
-fi
 
 if grep -E 'Error [0-9]+:|Fatal error|cannot find|No such file' \
     "$GRUB_LOG" >/dev/null 2>&1; then
@@ -328,18 +331,15 @@ dd if="$IMAGE" of="${MBR_BACKUP}.partition" \
 dd if="$MBR_BACKUP" of="${MBR_BACKUP}.original-partition" \
     bs=1 skip=446 count=66 2>/dev/null
 
-if ! cmp -s "${MBR_BACKUP}.partition" \
-            "${MBR_BACKUP}.original-partition"; then
+cmp -s "${MBR_BACKUP}.partition" \
+       "${MBR_BACKUP}.original-partition" ||
     fail "The partition table or MBR signature changed unexpectedly."
-fi
 
-# Verify the signature independently as well.
 SIGNATURE_AFTER=$(od -An -tx1 -j 510 -N 2 "$IMAGE" | tr -d ' \n')
 
 [ "$SIGNATURE_AFTER" = "55aa" ] ||
     fail "MBR signature changed unexpectedly."
 
-# Verify that the original partition fields remain unchanged.
 POST_TYPE=$(od -An -tu1 -j 450 -N 1 "$IMAGE" | tr -d ' ')
 
 POST_START=$(
@@ -364,13 +364,19 @@ POST_SIZE=$(
 rm -f "${MBR_BACKUP}.partition" \
       "${MBR_BACKUP}.original-partition"
 
+# ============================================================
+# Report success
+# ============================================================
+
 echo
-echo "GRUB installation commands completed without reported errors."
+echo "GRUB installation completed without reported errors."
 echo "Image:        $IMAGE"
 echo "Image size:   $IMAGE_BYTES bytes"
 echo "Mount point:  $IMAGE_MOUNT"
+echo "Stage docs:   $GRUB_STAGE_DOC"
 echo "Stage source: $GRUB_STAGE_SOURCE"
 echo "Stage target: $GRUB_STAGE_DEST"
+echo "Files copied: $FILE_COUNT"
 echo "GRUB disk:    $GRUB_DISK"
 echo "GRUB root:    $GRUB_ROOT"
 echo "Geometry:     ${CYLINDERS}/${HEADS}/${SECTORS_PER_TRACK}"
@@ -380,3 +386,5 @@ echo "  root $GRUB_ROOT"
 echo "  kernel $KERNEL_PATH root=$LINUX_ROOT $KERNEL_PARAMS"
 echo
 echo "A successful boot in 86Box is the final confirmation."
+
+sync

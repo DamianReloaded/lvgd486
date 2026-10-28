@@ -1,0 +1,50 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+executable.exe.stackdump
+.codegpt
+bin
+doc/.~lock.diagram.odg#
+doc/.~lock.schedule.ods#
+tools/GameEditor/.vs
+tools/GameEditor/GameEditor/bin
+tools/GameEditor/GameEditor/obj
+log.txt
+**/obj/
+**/.vs/
+tools/TaskManager/.vs/
+tools/TaskManager/database.db
+tools/TaskManager/Reload/bin/
+tools/TaskManager/Reload/obj/
+tools/TaskManager/TaskManager/bin/
+tools/TaskManager/TaskManager/obj/

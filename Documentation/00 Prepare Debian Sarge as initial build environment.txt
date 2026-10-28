@@ -35,3 +35,7 @@ guest ok = yes
 13. From the console run: /etc/init.d/samba restart (now you'll be able to write on the share from windows, remember to activate SMB 1.0 on windows).
 
 14. Configure the kernel with: make ARCH=i386 CC=gcc-3.3 menuconfig
+
+
+----
+*ncurses apps visual/keyboard issues: I learned that different ncurses applications may expect terminfo database to live at diferent locations, like /usr/share and /usr/local/share, the simplest compatibility solution is to place it at one location and creat a link in the other so everyone can find it.

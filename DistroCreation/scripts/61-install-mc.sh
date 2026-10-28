@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Install Midnight Commander
-# Script: 27-install-mc.sh
 # Install the built Midnight Commander into the staging tree.
 # ============================================================
 

@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Install ncurses 5.4
-# Script: 23-install-staging-ncurses.sh
 #
 # Install ncurses headers, static libraries, shared libraries,
 # terminal utilities, tack, and the compiled terminfo database.

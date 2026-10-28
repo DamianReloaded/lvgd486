@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Extract Sources and Prepare GCC Prerequisites
-# Script: 11-extract-sources.sh
 # ============================================================
 
 # Constants

@@ -3,7 +3,6 @@
 
 # ============================================================
 # LVGD486 - Build glibc 2.3.2
-# Script: 20-build-glibc.sh
 # Target: Intel 80486 (i486)
 #
 # Compiler: GCC 3.3.x

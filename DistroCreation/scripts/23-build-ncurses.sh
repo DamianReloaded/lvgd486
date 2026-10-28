@@ -3,7 +3,6 @@
 
 # ============================================================
 # LVGD486 - Build ncurses 5.4
-# Script: 22-build-ncurses.sh
 #
 # Build static and shared ncurses libraries using:
 #   GCC 4.0.2

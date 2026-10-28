@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Install KBD 1.12
-# Script: 60-install-kbd.sh
 #
 # Install KBD utilities and keyboard data into the distro
 # development staging tree.

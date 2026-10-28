@@ -1,0 +1,23 @@
+
+{
+    "configurations": [
+        {
+            "name": "Edit from Windows",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "E:/msys64/linonwin/include"
+            ],
+            "defines": [
+                "_POSIX_C_SOURCE=200809L",
+                "__USE_XOPEN_EXTENDED",
+                "__USE_POSIX",
+                "_GLIBCXX_USE_C99_CHECK"
+            ],
+            "compilerPath": "E:/msys64/mingw64/bin/g++.exe",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "windows-gcc-x64"
+        }
+    ],
+    "version": 4
+}

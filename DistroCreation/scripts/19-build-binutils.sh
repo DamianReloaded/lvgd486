@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Build Binutils 2.15
-# Script: 19-build-binutils.sh
 # Apply the GAS relax_type fix and test the build.
 # ============================================================
 

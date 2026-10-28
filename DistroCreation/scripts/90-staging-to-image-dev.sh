@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Copy Staging to Development Image
-# Script: 90-staging-to-image-dev.sh
 # ============================================================
 
 set -e
@@ -69,3 +68,4 @@ cp -a "$STAGING_DIR"/. "$MOUNT_DIR"/
 
 echo
 echo "Development image updated successfully."
+sync

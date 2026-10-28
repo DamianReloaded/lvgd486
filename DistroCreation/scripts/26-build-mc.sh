@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Build Midnight Commander (Static)
-# Script: 26-build-mc.sh
 #
 # Builds Midnight Commander 4.6.1 using GCC 3.3.
 # Static linking is requested.

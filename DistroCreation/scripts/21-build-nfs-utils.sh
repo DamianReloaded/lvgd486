@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Build NFS Utilities 1.0.6
-# Script: 21-build-nfs-utils.sh
 # Build NFS utilities with static linking.
 # No installation or staging is performed.
 # ============================================================

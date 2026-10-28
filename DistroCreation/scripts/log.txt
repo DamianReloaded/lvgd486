@@ -1,0 +1,3385 @@
+============================================================
+LVGD486 - KDFONTOP Permission Diagnostics
+============================================================
+Date: Tue Oct 27 12:04:28 EDT 2026
+Kernel source: /home/user/distrodev/home/linux
+
+=== 1. Kernel version ===
+VERSION = 2
+PATCHLEVEL = 4
+SUBLEVEL = 37
+EXTRAVERSION = .11
+
+=== 2. KD_FONT_OP_GET occurrences ===
+drivers/char/console.c:2927:	} else if (op->op == KD_FONT_OP_GET)
+drivers/char/vt.c:386:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c:958:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c.lvgd486.orig:386:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c.lvgd486.orig:959:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c.lvgd486.orig:1006:		if (!perm && op.op != KD_FONT_OP_GET)
+include/linux/kd.h:154:#define KD_FONT_OP_GET		1	/* Get font */
+
+=== 3. KDFONTOP occurrences ===
+drivers/char/console.c:2903:			/* If from KDFONTOP ioctl, don't allow things which can be done in userland,
+drivers/char/vt.c:1001:	case KDFONTOP: {
+drivers/char/vt.c.lvgd486.orig:1002:	case KDFONTOP: {
+include/linux/kd.h:143:#define KDFONTOP	0x4B72	/* font operations */
+
+=== 4. Permission checks and EPERM in vt.c ===
+62- * specific code.
+63- */
+64-unsigned char keyboard_type = KB_101;
+65-
+66-#if !defined(__alpha__) && !defined(__ia64__) && !defined(__mips__) && !defined(__arm__) && !defined(__sh__)
+67:asmlinkage long sys_ioperm(unsigned long from, unsigned long num, int on);
+68-#endif
+69-
+70-unsigned int video_font_height;
+71-unsigned int default_font_height;
+72-unsigned int video_scan_lines;
+--
+154-
+155-#define i (tmp.kb_index)
+156-#define s (tmp.kb_table)
+157-#define v (tmp.kb_value)
+158-static inline int
+159:do_kdsk_ioctl(int cmd, struct kbentry *user_kbe, int perm, struct kbd_struct *kbd)
+160-{
+161-	struct kbentry tmp;
+162-	ushort *key_map, val, ov;
+163-
+164-	if (copy_from_user(&tmp, user_kbe, sizeof(struct kbentry)))
+165-		return -EFAULT;
+166-	if (i >= NR_KEYS || s >= MAX_NR_KEYMAPS)
+167-		return -EINVAL;	
+168-
+169-	if (!capable(CAP_SYS_TTY_CONFIG))
+170:		perm = 0;
+171-
+172-	switch (cmd) {
+173-	case KDGKBENT:
+174-		key_map = key_maps[s];
+175-		if (key_map) {
+--
+178-			val = K_HOLE;
+179-		} else
+180-		    val = (i ? K_HOLE : K_NOSUCHMAP);
+181-		return put_user(val, &user_kbe->kb_value);
+182-	case KDSKBENT:
+183:		if (!perm)
+184:			return -EPERM;
+185-		if (!i && v == K_NOSUCHMAP) {
+186-			/* disallocate map */
+187-			key_map = key_maps[s];
+188-			if (s && key_map) {
+189-			    key_maps[s] = 0;
+--
+212-		if (!(key_map = key_maps[s])) {
+213-			int j;
+214-
+215-			if (keymap_count >= MAX_NR_OF_USER_KEYMAPS &&
+216-			    !capable(CAP_SYS_RESOURCE))
+217:				return -EPERM;
+218-
+219-			key_map = (ushort *) kmalloc(sizeof(plain_map),
+220-						     GFP_KERNEL);
+221-			if (!key_map)
+222-				return -ENOMEM;
+--
+231-			break;	/* nothing to do */
+232-		/*
+233-		 * Attention Key.
+234-		 */
+235-		if (((ov == K_SAK) || (v == K_SAK)) && !capable(CAP_SYS_ADMIN))
+236:			return -EPERM;
+237-		key_map[i] = U(v);
+238-		if (!s && (KTYP(ov) == KT_SHIFT || KTYP(v) == KT_SHIFT))
+239-			compute_shiftstate();
+240-		break;
+241-	}
+--
+244-#undef i
+245-#undef s
+246-#undef v
+247-
+248-static inline int 
+249:do_kbkeycode_ioctl(int cmd, struct kbkeycode *user_kbkc, int perm)
+250-{
+251-	struct kbkeycode tmp;
+252-	int kc = 0;
+253-
+254-	if (copy_from_user(&tmp, user_kbkc, sizeof(struct kbkeycode)))
+--
+258-		kc = getkeycode(tmp.scancode);
+259-		if (kc >= 0)
+260-			kc = put_user(kc, &user_kbkc->keycode);
+261-		break;
+262-	case KDSETKEYCODE:
+263:		if (!perm)
+264:			return -EPERM;
+265-		kc = setkeycode(tmp.scancode, tmp.keycode);
+266-		break;
+267-	}
+268-	return kc;
+269-}
+270-
+271-static inline int
+272:do_kdgkb_ioctl(int cmd, struct kbsentry *user_kdgkb, int perm)
+273-{
+274-	struct kbsentry tmp;
+275-	char *p;
+276-	u_char *q;
+277-	int sz;
+278-	int delta;
+279-	char *first_free, *fj, *fnw;
+280-	int i, j, k;
+281-
+282-	if (!capable(CAP_SYS_TTY_CONFIG))
+283:		perm = 0;
+284-
+285-	/* we mostly copy too much here (512bytes), but who cares ;) */
+286-	if (copy_from_user(&tmp, user_kdgkb, sizeof(struct kbsentry)))
+287-		return -EFAULT;
+288-	tmp.kb_string[sizeof(tmp.kb_string)-1] = '\0';
+--
+302-					return -EFAULT;
+303-		if (put_user('\0', q))
+304-			return -EFAULT;
+305-		return ((p && *p) ? -EOVERFLOW : 0);
+306-	case KDSKBSENT:
+307:		if (!perm)
+308:			return -EPERM;
+309-
+310-		q = func_table[i];
+311-		first_free = funcbufptr + (funcbufsize - funcbufleft);
+312-		for (j = i+1; j < MAX_NR_FUNC && !func_table[j]; j++) 
+313-			;
+--
+360-	}
+361-	return 0;
+362-}
+363-
+364-static inline int 
+365:do_fontx_ioctl(int cmd, struct consolefontdesc *user_cfd, int perm)
+366-{
+367-	struct consolefontdesc cfdarg;
+368-	struct console_font_op op;
+369-	int i;
+370-
+371-	if (copy_from_user(&cfdarg, user_cfd, sizeof(struct consolefontdesc))) 
+372-		return -EFAULT;
+373- 	
+374-	switch (cmd) {
+375-	case PIO_FONTX:
+376:		if (!perm)
+377:			return -EPERM;
+378-		op.op = KD_FONT_OP_SET;
+379-		op.flags = KD_FONT_FLAG_OLD;
+380-		op.width = 8;
+381-		op.height = cfdarg.charheight;
+382-		op.charcount = cfdarg.charcount;
+383-		op.data = cfdarg.chardata;
+384-		return con_font_op(fg_console, &op);
+385-	case GIO_FONTX: {
+386:		op.op = KD_FONT_OP_GET;
+387-		op.flags = KD_FONT_FLAG_OLD;
+388-		op.width = 8;
+389-		op.height = cfdarg.charheight;
+390-		op.charcount = cfdarg.charcount;
+391-		op.data = cfdarg.chardata;
+--
+401-	}
+402-	return -EINVAL;
+403-}
+404-
+405-static inline int 
+406:do_unimap_ioctl(int cmd, struct unimapdesc *user_ud,int perm)
+407-{
+408-	struct unimapdesc tmp;
+409-	int i = 0; 
+410-
+411-	if (copy_from_user(&tmp, user_ud, sizeof tmp))
+--
+415-						tmp.entry_ct*sizeof(struct unipair));
+416-		if (i) return i;
+417-	}
+418-	switch (cmd) {
+419-	case PIO_UNIMAP:
+420:		if (!perm)
+421:			return -EPERM;
+422-		return con_set_unimap(fg_console, tmp.entry_ct, tmp.entries);
+423-	case GIO_UNIMAP:
+424-		return con_get_unimap(fg_console, tmp.entry_ct, &(user_ud->entry_ct), tmp.entries);
+425-	}
+426-	return 0;
+--
+431- * capability to modify any console, not just the fg_console. 
+432- */
+433-int vt_ioctl(struct tty_struct *tty, struct file * file,
+434-	     unsigned int cmd, unsigned long arg)
+435-{
+436:	int i, perm;
+437-	unsigned int console;
+438-	unsigned char ucval;
+439-	struct kbd_struct * kbd;
+440-	struct vt_struct *vt = (struct vt_struct *)tty->driver_data;
+441-
+--
+443-
+444-	if (!vc_cons_allocated(console)) 	/* impossible? */
+445-		return -ENOIOCTLCMD;
+446-
+447-	/*
+448:	 * To have permissions to do most of the vt ioctls, we either have
+449-	 * to be the owner of the tty, or super-user.
+450-	 */
+451:	perm = 0;
+452-	if (current->tty == tty || suser())
+453:		perm = 1;
+454- 
+455-	kbd = kbd_table + console;
+456-	switch (cmd) {
+457-	case KIOCSOUND:
+458:		if (!perm)
+459:			return -EPERM;
+460-		if (arg)
+461-			arg = 1193180 / arg;
+462-		kd_mksound(arg, 0);
+463-		return 0;
+464-
+465-	case KDMKTONE:
+466:		if (!perm)
+467:			return -EPERM;
+468-	{
+469-		unsigned int ticks, count;
+470-		
+471-		/*
+472-		 * Generate the tone for the appropriate number of ticks.
+--
+488-		goto setchar;
+489-
+490-#if defined(CONFIG_X86)
+491-		/*
+492-		 * These cannot be implemented on any machine that implements
+493:		 * ioperm() in user level (such as Alpha PCs).
+494-		 */
+495-	case KDADDIO:
+496-	case KDDELIO:
+497-		/*
+498-		 * KDADDIO and KDDELIO may be able to add ports beyond what
+499-		 * we reject here, but to be safe...
+500-		 */
+501-		if (arg < GPFIRST || arg > GPLAST)
+502-			return -EINVAL;
+503:		return sys_ioperm(arg, 1, (cmd == KDADDIO)) ? -ENXIO : 0;
+504-
+505-	case KDENABIO:
+506-	case KDDISABIO:
+507:		return sys_ioperm(GPFIRST, GPNUM,
+508-				  (cmd == KDENABIO)) ? -ENXIO : 0;
+509-#endif
+510-
+511-	/* Linux m68k/i386 interface for setting the keyboard delay/repeat rate */
+512-		
+513-	case KDKBDREP:
+514-	{
+515-		struct kbd_repeat kbrep;
+516-		
+517-		if (!capable(CAP_SYS_ADMIN))
+518:			return -EPERM;
+519-
+520-		if (copy_from_user(&kbrep, (void *)arg,
+521-				   sizeof(struct kbd_repeat)))
+522-			return -EFAULT;
+523-		if ((i = kbd_rate( &kbrep )))
+--
+532-		/*
+533-		 * currently, setting the mode from KD_TEXT to KD_GRAPHICS
+534-		 * doesn't do a whole lot. i'm not sure if it should do any
+535-		 * restoration of modes or what...
+536-		 */
+537:			return -EPERM;
+538-		switch (arg) {
+539-		case KD_GRAPHICS:
+540-			break;
+541-		case KD_TEXT0:
+542-		case KD_TEXT1:
+--
+571-		 * this could be easily finished.
+572-		 */
+573-		return -EINVAL;
+574-
+575-	case KDSKBMODE:
+576:		if (!perm)
+577:			return -EPERM;
+578-		switch(arg) {
+579-		  case K_RAW:
+580-			kbd->kbdmode = VC_RAW;
+581-			break;
+582-		  case K_MEDIUMRAW:
+--
+624-		return put_user(ucval, (int *)arg); 
+625-
+626-	case KDGETKEYCODE:
+627-	case KDSETKEYCODE:
+628-		if(!capable(CAP_SYS_ADMIN))
+629:			perm=0;
+630:		return do_kbkeycode_ioctl(cmd, (struct kbkeycode *)arg, perm);
+631-
+632-	case KDGKBENT:
+633-	case KDSKBENT:
+634:		return do_kdsk_ioctl(cmd, (struct kbentry *)arg, perm, kbd);
+635-
+636-	case KDGKBSENT:
+637-	case KDSKBSENT:
+638:		return do_kdgkb_ioctl(cmd, (struct kbsentry *)arg, perm);
+639-
+640-	case KDGKBDIACR:
+641-	{
+642-		struct kbdiacrs *a = (struct kbdiacrs *)arg;
+643-
+--
+651-	case KDSKBDIACR:
+652-	{
+653-		struct kbdiacrs *a = (struct kbdiacrs *)arg;
+654-		unsigned int ct;
+655-
+656:		if (!perm)
+657:			return -EPERM;
+658-		if (get_user(ct,&a->kb_cnt))
+659-			return -EFAULT;
+660-		if (ct >= MAX_DIACR)
+661-			return -EINVAL;
+662-		accent_table_size = ct;
+--
+670-	case KDGKBLED:
+671-		ucval = kbd->ledflagstate | (kbd->default_ledflagstate << 4);
+672-		goto setchar;
+673-
+674-	case KDSKBLED:
+675:		if (!perm)
+676:			return -EPERM;
+677-		if (arg & ~0x77)
+678-			return -EINVAL;
+679-		kbd->ledflagstate = (arg & 7);
+680-		kbd->default_ledflagstate = ((arg >> 4) & 7);
+681-		set_leds();
+--
+687-		ucval = getledstate();
+688-	setchar:
+689-		return put_user(ucval, (char*)arg);
+690-
+691-	case KDSETLED:
+692:		if (!perm)
+693:		  return -EPERM;
+694-		setledstate(kbd, arg);
+695-		return 0;
+696-
+697-	/*
+698-	 * A process can indicate its willingness to accept signals
+--
+705-	 * does not increase.
+706-	 */
+707-	case KDSIGACCEPT:
+708-	{
+709-		extern int spawnpid, spawnsig;
+710:		if (!perm || !capable(CAP_KILL))
+711:		  return -EPERM;
+712-		if (arg < 1 || arg > _NSIG || arg == SIGKILL)
+713-		  return -EINVAL;
+714-		spawnpid = current->pid;
+715-		spawnsig = arg;
+716-		return 0;
+--
+718-
+719-	case VT_SETMODE:
+720-	{
+721-		struct vt_mode tmp;
+722-
+723:		if (!perm)
+724:			return -EPERM;
+725-		if (copy_from_user(&tmp, (void*)arg, sizeof(struct vt_mode)))
+726-			return -EFAULT;
+727-		if (tmp.mode != VT_AUTO && tmp.mode != VT_PROCESS)
+728-			return -EINVAL;
+729-		vt_cons[console]->vt_mode = tmp;
+--
+772-	 * ioctl(fd, VT_ACTIVATE, num) will cause us to switch to vt # num,
+773-	 * with num >= 1 (switches to vt 0, our console, are not allowed, just
+774-	 * to preserve sanity).
+775-	 */
+776-	case VT_ACTIVATE:
+777:		if (!perm)
+778:			return -EPERM;
+779-		if (arg == 0 || arg > MAX_NR_CONSOLES)
+780-			return -ENXIO;
+781-		arg--;
+782-		i = vc_allocate(arg);
+783-		if (i)
+--
+787-
+788-	/*
+789-	 * wait until the specified VT has been activated
+790-	 */
+791-	case VT_WAITACTIVE:
+792:		if (!perm)
+793:			return -EPERM;
+794-		if (arg == 0 || arg > MAX_NR_CONSOLES)
+795-			return -ENXIO;
+796-		return vt_waitactive(arg-1);
+797-
+798-	/*
+--
+804-	 *	0:	pending switch-from not OK
+805-	 *	1:	pending switch-from OK
+806-	 *	2:	completed switch-to OK
+807-	 */
+808-	case VT_RELDISP:
+809:		if (!perm)
+810:			return -EPERM;
+811-		if (vt_cons[console]->vt_mode.mode != VT_PROCESS)
+812-			return -EINVAL;
+813-
+814-		/*
+815-		 * Switching-from response
+--
+882-
+883-	case VT_RESIZE:
+884-	{
+885-		struct vt_sizes *vtsizes = (struct vt_sizes *) arg;
+886-		ushort ll,cc;
+887:		if (!perm)
+888:			return -EPERM;
+889-		if (get_user(ll, &vtsizes->v_rows) ||
+890-		    get_user(cc, &vtsizes->v_cols))
+891-			return -EFAULT;
+892-		return vc_resize_all(ll, cc);
+893-	}
+894-
+895-	case VT_RESIZEX:
+896-	{
+897-		struct vt_consize *vtconsize = (struct vt_consize *) arg;
+898-		ushort ll,cc,vlin,clin,vcol,ccol;
+899:		if (!perm)
+900:			return -EPERM;
+901-		if (verify_area(VERIFY_READ, (void *)vtconsize,
+902-				sizeof(struct vt_consize)))
+903-			return -EFAULT;
+904-		__get_user(ll, &vtconsize->v_rows);
+905-		__get_user(cc, &vtconsize->v_cols);
+--
+940-		return vc_resize_all(ll, cc);
+941-  	}
+942-
+943-	case PIO_FONT: {
+944-		struct console_font_op op;
+945:		if (!perm)
+946:			return -EPERM;
+947-		op.op = KD_FONT_OP_SET;
+948-		op.flags = KD_FONT_FLAG_OLD | KD_FONT_FLAG_DONT_RECALC;	/* Compatibility */
+949-		op.width = 8;
+950-		op.height = 0;
+951-		op.charcount = 256;
+--
+953-		return con_font_op(fg_console, &op);
+954-	}
+955-
+956-	case GIO_FONT: {
+957-		struct console_font_op op;
+958:		op.op = KD_FONT_OP_GET;
+959-		op.flags = KD_FONT_FLAG_OLD;
+960-		op.width = 8;
+961-		op.height = 32;
+962-		op.charcount = 256;
+963-		op.data = (char *) arg;
+964-		return con_font_op(fg_console, &op);
+965-	}
+966-
+967-	case PIO_CMAP:
+968:                if (!perm)
+969:			return -EPERM;
+970-                return con_set_cmap((char *)arg);
+971-
+972-	case GIO_CMAP:
+973-                return con_get_cmap((char *)arg);
+974-
+975-	case PIO_FONTX:
+976-	case GIO_FONTX:
+977:		return do_fontx_ioctl(cmd, (struct consolefontdesc *)arg, perm);
+978-
+979-	case PIO_FONTRESET:
+980-	{
+981:		if (!perm)
+982:			return -EPERM;
+983-
+984-#ifdef BROKEN_GRAPHICS_PROGRAMS
+985-		/* With BROKEN_GRAPHICS_PROGRAMS defined, the default
+986-		   font is not saved. */
+987-		return -ENOSYS;
+--
+996-		return 0;
+997-		}
+998-#endif
+999-	}
+1000-
+1001:	case KDFONTOP: {
+1002-		struct console_font_op op;
+1003-		if (copy_from_user(&op, (void *) arg, sizeof(op)))
+1004-			return -EFAULT;
+1005:			return -EPERM;
+1006-		i = con_font_op(console, &op);
+1007-		if (i) return i;
+1008-		if (copy_to_user((void *) arg, &op, sizeof(op)))
+1009-			return -EFAULT;
+1010-		return 0;
+1011-	}
+1012-
+1013-	case PIO_SCRNMAP:
+1014:		if (!perm)
+1015:			return -EPERM;
+1016-		return con_set_trans_old((unsigned char *)arg);
+1017-
+1018-	case GIO_SCRNMAP:
+1019-		return con_get_trans_old((unsigned char *)arg);
+1020-
+1021-	case PIO_UNISCRNMAP:
+1022:		if (!perm)
+1023:			return -EPERM;
+1024-		return con_set_trans_new((unsigned short *)arg);
+1025-
+1026-	case GIO_UNISCRNMAP:
+1027-		return con_get_trans_new((unsigned short *)arg);
+1028-
+1029-	case PIO_UNIMAPCLR:
+1030-	      { struct unimapinit ui;
+1031:		if (!perm)
+1032:			return -EPERM;
+1033-		i = copy_from_user(&ui, (void *)arg, sizeof(struct unimapinit));
+1034-		if (i) return -EFAULT;
+1035-		con_clear_unimap(fg_console, &ui);
+1036-		return 0;
+1037-	      }
+1038-
+1039-	case PIO_UNIMAP:
+1040-	case GIO_UNIMAP:
+1041:		return do_unimap_ioctl(cmd, (struct unimapdesc *)arg, perm);
+1042-
+1043-	case VT_LOCKSWITCH:
+1044-		if (!suser())
+1045:		   return -EPERM;
+1046-		vt_dont_switch = 1;
+1047-		return 0;
+1048-	case VT_UNLOCKSWITCH:
+1049-		if (!suser())
+1050:		   return -EPERM;
+1051-		vt_dont_switch = 0;
+1052-		return 0;
+1053-#ifdef CONFIG_FB_COMPAT_XPMAC
+1054-	case VC_GETMODE:
+1055-		{
+--
+1068-	case VC_SETMODE:
+1069-	case VC_INQMODE:
+1070-		{
+1071-			struct vc_mode mode;
+1072-
+1073:			if (!perm)
+1074:				return -EPERM;
+1075-			if (copy_from_user(&mode, (void *) arg, sizeof(mode)))
+1076-				return -EFAULT;
+1077-			return console_setmode(&mode, cmd == VC_SETMODE);
+1078-		}
+1079-	case VC_SETCMAP:
+1080-		{
+1081-			unsigned char cmap[3][256], *p;
+1082-			int n_entries, cmap_size, i, j;
+1083-
+1084:			if (!perm)
+1085:				return -EPERM;
+1086-			if (arg == (unsigned long) VC_POWERMODE_INQUIRY
+1087-			    || arg <= VESA_POWERDOWN) {
+1088-				/* compatibility hack: VC_POWERMODE
+1089-				   was changed from 0x766a to 0x766c */
+1090-				return console_powermode((int) arg);
+--
+1106-		}
+1107-	case VC_GETCMAP:
+1108-		/* not implemented yet */
+1109-		return -ENOIOCTLCMD;
+1110-	case VC_POWERMODE:
+1111:		if (!perm)
+1112:			return -EPERM;
+1113-		return console_powermode((int) arg);
+1114-#endif /* CONFIG_FB_COMPAT_XPMAC */
+1115-	default:
+1116-		return -ENOIOCTLCMD;
+1117-	}
+
+=== 5. Font operation implementation ===
+drivers/char/agp/agpgart_fe.c-607-	agp_kern_info kerninfo;
+drivers/char/agp/agpgart_fe.c-608-
+drivers/char/agp/agpgart_fe.c-609-	lock_kernel();
+drivers/char/agp/agpgart_fe.c-610-	AGP_LOCK();
+drivers/char/agp/agpgart_fe.c-611-
+drivers/char/agp/agpgart_fe.c-612-	if (agp_fe.backend_acquired != TRUE) {
+drivers/char/agp/agpgart_fe.c-613-		AGP_UNLOCK();
+drivers/char/agp/agpgart_fe.c-614-		unlock_kernel();
+drivers/char/agp/agpgart_fe.c:615:		return -EPERM;
+drivers/char/agp/agpgart_fe.c-616-	}
+drivers/char/agp/agpgart_fe.c-617-	if (!(test_bit(AGP_FF_IS_VALID, &priv->access_flags))) {
+drivers/char/agp/agpgart_fe.c-618-		AGP_UNLOCK();
+drivers/char/agp/agpgart_fe.c-619-		unlock_kernel();
+drivers/char/agp/agpgart_fe.c:620:		return -EPERM;
+drivers/char/agp/agpgart_fe.c-621-	}
+drivers/char/agp/agpgart_fe.c-622-	agp_copy_info(&kerninfo);
+drivers/char/agp/agpgart_fe.c-623-	size = vma->vm_end - vma->vm_start;
+drivers/char/agp/agpgart_fe.c-624-	current_size = kerninfo.aper_size;
+drivers/char/agp/agpgart_fe.c-625-	current_size = current_size * 0x100000;
+drivers/char/agp/agpgart_fe.c-626-	offset = vma->vm_pgoff << PAGE_SHIFT;
+drivers/char/agp/agpgart_fe.c-627-
+drivers/char/agp/agpgart_fe.c-628-	if (test_bit(AGP_FF_IS_CLIENT, &priv->access_flags)) {
+--
+drivers/char/agp/agpgart_fe.c-631-			unlock_kernel();
+drivers/char/agp/agpgart_fe.c-632-			return -EINVAL;
+drivers/char/agp/agpgart_fe.c-633-		}
+drivers/char/agp/agpgart_fe.c-634-		client = agp_find_client_by_pid(current->pid);
+drivers/char/agp/agpgart_fe.c-635-
+drivers/char/agp/agpgart_fe.c-636-		if (client == NULL) {
+drivers/char/agp/agpgart_fe.c-637-			AGP_UNLOCK();
+drivers/char/agp/agpgart_fe.c-638-			unlock_kernel();
+drivers/char/agp/agpgart_fe.c:639:			return -EPERM;
+drivers/char/agp/agpgart_fe.c-640-		}
+drivers/char/agp/agpgart_fe.c-641-		if (!agp_find_seg_in_client(client, offset,
+drivers/char/agp/agpgart_fe.c-642-					    size, vma->vm_page_prot)) {
+drivers/char/agp/agpgart_fe.c-643-			AGP_UNLOCK();
+drivers/char/agp/agpgart_fe.c-644-			unlock_kernel();
+drivers/char/agp/agpgart_fe.c-645-			return -EINVAL;
+drivers/char/agp/agpgart_fe.c-646-		}
+drivers/char/agp/agpgart_fe.c-647-		if (remap_page_range(vma->vm_start,
+--
+drivers/char/agp/agpgart_fe.c-668-			return -EAGAIN;
+drivers/char/agp/agpgart_fe.c-669-		}
+drivers/char/agp/agpgart_fe.c-670-		AGP_UNLOCK();
+drivers/char/agp/agpgart_fe.c-671-		unlock_kernel();
+drivers/char/agp/agpgart_fe.c-672-		return 0;
+drivers/char/agp/agpgart_fe.c-673-	}
+drivers/char/agp/agpgart_fe.c-674-	AGP_UNLOCK();
+drivers/char/agp/agpgart_fe.c-675-	unlock_kernel();
+drivers/char/agp/agpgart_fe.c:676:	return -EPERM;
+drivers/char/agp/agpgart_fe.c-677-}
+drivers/char/agp/agpgart_fe.c-678-
+drivers/char/agp/agpgart_fe.c-679-static int agp_release(struct inode *inode, struct file *file)
+drivers/char/agp/agpgart_fe.c-680-{
+drivers/char/agp/agpgart_fe.c-681-	agp_file_private *priv = (agp_file_private *) file->private_data;
+drivers/char/agp/agpgart_fe.c-682-
+drivers/char/agp/agpgart_fe.c-683-	lock_kernel();
+drivers/char/agp/agpgart_fe.c-684-	AGP_LOCK();
+--
+drivers/char/agp/agpgart_fe.c-783-	}
+drivers/char/agp/agpgart_fe.c-784-	return 0;
+drivers/char/agp/agpgart_fe.c-785-}
+drivers/char/agp/agpgart_fe.c-786-
+drivers/char/agp/agpgart_fe.c-787-static int agpioc_acquire_wrap(agp_file_private * priv, unsigned long arg)
+drivers/char/agp/agpgart_fe.c-788-{
+drivers/char/agp/agpgart_fe.c-789-	agp_controller *controller;
+drivers/char/agp/agpgart_fe.c-790-	if (!(test_bit(AGP_FF_ALLOW_CONTROLLER, &priv->access_flags))) {
+drivers/char/agp/agpgart_fe.c:791:		return -EPERM;
+drivers/char/agp/agpgart_fe.c-792-	}
+drivers/char/agp/agpgart_fe.c-793-	if (agp_fe.current_controller != NULL) {
+drivers/char/agp/agpgart_fe.c-794-		return -EBUSY;
+drivers/char/agp/agpgart_fe.c-795-	}
+drivers/char/agp/agpgart_fe.c-796-	if ((agp_backend_acquire()) == 0) {
+drivers/char/agp/agpgart_fe.c-797-		agp_fe.backend_acquired = TRUE;
+drivers/char/agp/agpgart_fe.c-798-	} else {
+drivers/char/agp/agpgart_fe.c-799-		return -EBUSY;
+--
+drivers/char/amiserial.c-1181-	  return -EINVAL;
+drivers/char/amiserial.c-1182-  
+drivers/char/amiserial.c-1183-	if (!serial_isroot()) {
+drivers/char/amiserial.c-1184-		if ((new_serial.baud_base != state->baud_base) ||
+drivers/char/amiserial.c-1185-		    (new_serial.close_delay != state->close_delay) ||
+drivers/char/amiserial.c-1186-		    (new_serial.xmit_fifo_size != state->xmit_fifo_size) ||
+drivers/char/amiserial.c-1187-		    ((new_serial.flags & ~ASYNC_USR_MASK) !=
+drivers/char/amiserial.c-1188-		     (state->flags & ~ASYNC_USR_MASK)))
+drivers/char/amiserial.c:1189:			return -EPERM;
+drivers/char/amiserial.c-1190-		state->flags = ((state->flags & ~ASYNC_USR_MASK) |
+drivers/char/amiserial.c-1191-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/amiserial.c-1192-		info->flags = ((info->flags & ~ASYNC_USR_MASK) |
+drivers/char/amiserial.c-1193-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/amiserial.c-1194-		state->custom_divisor = new_serial.custom_divisor;
+drivers/char/amiserial.c-1195-		goto check_and_exit;
+drivers/char/amiserial.c-1196-	}
+drivers/char/amiserial.c-1197-
+--
+drivers/char/au1x00-serial.c-1443-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/au1x00-serial.c-1444-		if (change_irq || change_port ||
+drivers/char/au1x00-serial.c-1445-		    (new_serial.baud_base != state->baud_base) ||
+drivers/char/au1x00-serial.c-1446-		    (new_serial.type != state->type) ||
+drivers/char/au1x00-serial.c-1447-		    (new_serial.close_delay != state->close_delay) ||
+drivers/char/au1x00-serial.c-1448-		    (new_serial.xmit_fifo_size != state->xmit_fifo_size) ||
+drivers/char/au1x00-serial.c-1449-		    ((new_serial.flags & ~ASYNC_USR_MASK) !=
+drivers/char/au1x00-serial.c-1450-		     (state->flags & ~ASYNC_USR_MASK)))
+drivers/char/au1x00-serial.c:1451:			return -EPERM;
+drivers/char/au1x00-serial.c-1452-		state->flags = ((state->flags & ~ASYNC_USR_MASK) |
+drivers/char/au1x00-serial.c-1453-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/au1x00-serial.c-1454-		info->flags = ((info->flags & ~ASYNC_USR_MASK) |
+drivers/char/au1x00-serial.c-1455-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/au1x00-serial.c-1456-		state->custom_divisor = new_serial.custom_divisor;
+drivers/char/au1x00-serial.c-1457-		goto check_and_exit;
+drivers/char/au1x00-serial.c-1458-	}
+drivers/char/au1x00-serial.c-1459-
+--
+drivers/char/au1x00-serial.c-1676-	return 0;
+drivers/char/au1x00-serial.c-1677-}
+drivers/char/au1x00-serial.c-1678-
+drivers/char/au1x00-serial.c-1679-static int do_autoconfig(struct async_struct * info)
+drivers/char/au1x00-serial.c-1680-{
+drivers/char/au1x00-serial.c-1681-	int retval;
+drivers/char/au1x00-serial.c-1682-
+drivers/char/au1x00-serial.c-1683-	if (!capable(CAP_SYS_ADMIN))
+drivers/char/au1x00-serial.c:1684:		return -EPERM;
+drivers/char/au1x00-serial.c-1685-
+drivers/char/au1x00-serial.c-1686-	if (info->state->count > 1)
+drivers/char/au1x00-serial.c-1687-		return -EBUSY;
+drivers/char/au1x00-serial.c-1688-
+drivers/char/au1x00-serial.c-1689-	shutdown(info);
+drivers/char/au1x00-serial.c-1690-
+drivers/char/au1x00-serial.c-1691-	autoconfig(info->state);
+drivers/char/au1x00-serial.c-1692-	retval = startup(info);
+--
+drivers/char/console.c-663-{
+drivers/char/console.c-664-	if (currcons >= MAX_NR_CONSOLES)
+drivers/char/console.c-665-		return -ENXIO;
+drivers/char/console.c-666-	if (!vc_cons[currcons].d) {
+drivers/char/console.c-667-	    long p, q;
+drivers/char/console.c-668-
+drivers/char/console.c-669-	    /* prevent users from taking too much memory */
+drivers/char/console.c-670-	    if (currcons >= MAX_NR_USER_CONSOLES && !capable(CAP_SYS_RESOURCE))
+drivers/char/console.c:671:	      return -EPERM;
+drivers/char/console.c-672-
+drivers/char/console.c-673-	    /* due to the granularity of kmalloc, we waste some memory here */
+drivers/char/console.c-674-	    /* the alloc is done in two steps, to optimize the common situation
+drivers/char/console.c-675-	       of a 25x80 console (structsize=216, screenbuf_size=4000) */
+drivers/char/console.c-676-	    /* although the numbers above are not valid since long ago, the
+drivers/char/console.c-677-	       point is still up-to-date and the comment still has its value
+drivers/char/console.c-678-	       even if only as a historical artifact.  --mj, July 1998 */
+drivers/char/console.c-679-	    p = (long) kmalloc(structsize, GFP_KERNEL);
+--
+drivers/char/console.c-2224-int tioclinux(struct tty_struct *tty, unsigned long arg)
+drivers/char/console.c-2225-{
+drivers/char/console.c-2226-	char type, data;
+drivers/char/console.c-2227-	int ret;
+drivers/char/console.c-2228-
+drivers/char/console.c-2229-	if (tty->driver.type != TTY_DRIVER_TYPE_CONSOLE)
+drivers/char/console.c-2230-		return -EINVAL;
+drivers/char/console.c-2231-	if (current->tty != tty && !capable(CAP_SYS_ADMIN))
+drivers/char/console.c:2232:		return -EPERM;
+drivers/char/console.c-2233-	if (get_user(type, (char *)arg))
+drivers/char/console.c-2234-		return -EFAULT;
+drivers/char/console.c-2235-	ret = 0;
+drivers/char/console.c-2236-	switch (type)
+drivers/char/console.c-2237-	{
+drivers/char/console.c-2238-		case 2:
+drivers/char/console.c-2239-			acquire_console_sem();
+drivers/char/console.c-2240-			ret = set_selection(arg, tty, 1);
+--
+drivers/char/console.c-2876- *  is upto the actual low-level console-driver convert data into its favorite
+drivers/char/console.c-2877- *  format (maybe we should add a `fontoffset' field to the `display'
+drivers/char/console.c-2878- *  structure so we wont have to convert the fontdata all the time.
+drivers/char/console.c-2879- *  /Jes
+drivers/char/console.c-2880- */
+drivers/char/console.c-2881-
+drivers/char/console.c-2882-#define max_font_size 65536
+drivers/char/console.c-2883-
+drivers/char/console.c:2884:int con_font_op(int currcons, struct console_font_op *op)
+drivers/char/console.c-2885-{
+drivers/char/console.c-2886-	int rc = -EINVAL;
+drivers/char/console.c-2887-	int size = max_font_size, set;
+drivers/char/console.c-2888-	u8 *temp = NULL;
+drivers/char/console.c-2889-	struct console_font_op old_op;
+drivers/char/console.c-2890-
+drivers/char/console.c-2891-	if (vt_cons[currcons]->vc_mode != KD_TEXT)
+drivers/char/console.c-2892-		goto quit;
+--
+drivers/char/console.c-2919-			op->height = h;
+drivers/char/console.c-2920-		}
+drivers/char/console.c-2921-		if (op->width > 32 || op->height > 32)
+drivers/char/console.c-2922-			goto quit;
+drivers/char/console.c-2923-		size = (op->width+7)/8 * 32 * op->charcount;
+drivers/char/console.c-2924-		if (size > max_font_size)
+drivers/char/console.c-2925-			return -ENOSPC;
+drivers/char/console.c-2926-		set = 1;
+drivers/char/console.c:2927:	} else if (op->op == KD_FONT_OP_GET)
+drivers/char/console.c-2928-		set = 0;
+drivers/char/console.c-2929-	else
+drivers/char/console.c:2930:		return sw->con_font_op(vc_cons[currcons].d, op);
+drivers/char/console.c-2931-	if (op->data) {
+drivers/char/console.c-2932-		temp = kmalloc(size, GFP_KERNEL);
+drivers/char/console.c-2933-		if (!temp)
+drivers/char/console.c-2934-			return -ENOMEM;
+drivers/char/console.c-2935-		if (set && copy_from_user(temp, op->data, size)) {
+drivers/char/console.c-2936-			rc = -EFAULT;
+drivers/char/console.c-2937-			goto quit;
+drivers/char/console.c-2938-		}
+drivers/char/console.c-2939-		op->data = temp;
+drivers/char/console.c-2940-	}
+drivers/char/console.c-2941-
+drivers/char/console.c-2942-	acquire_console_sem();
+drivers/char/console.c:2943:	rc = sw->con_font_op(vc_cons[currcons].d, op);
+drivers/char/console.c-2944-	release_console_sem();
+drivers/char/console.c-2945-
+drivers/char/console.c-2946-	op->data = old_op.data;
+drivers/char/console.c-2947-	if (!rc && !set) {
+drivers/char/console.c-2948-		int c = (op->width+7)/8 * 32 * op->charcount;
+drivers/char/console.c-2949-		
+drivers/char/console.c-2950-		if (op->data && op->charcount > old_op.charcount)
+drivers/char/console.c-2951-			rc = -ENOSPC;
+--
+drivers/char/cyclades.c-3641-	return -EFAULT;
+drivers/char/cyclades.c-3642-    old_info = *info;
+drivers/char/cyclades.c-3643-
+drivers/char/cyclades.c-3644-    if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/cyclades.c-3645-            if ((new_serial.close_delay != info->close_delay) ||
+drivers/char/cyclades.c-3646-		(new_serial.baud_base != info->baud) ||
+drivers/char/cyclades.c-3647-		((new_serial.flags & ASYNC_FLAGS & ~ASYNC_USR_MASK) !=
+drivers/char/cyclades.c-3648-		 (info->flags & ASYNC_FLAGS & ~ASYNC_USR_MASK)))
+drivers/char/cyclades.c:3649:                    return -EPERM;
+drivers/char/cyclades.c-3650-            info->flags = ((info->flags & ~ASYNC_USR_MASK) |
+drivers/char/cyclades.c-3651-                           (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/cyclades.c-3652-            info->baud = new_serial.baud_base;
+drivers/char/cyclades.c-3653-	    info->custom_divisor = new_serial.custom_divisor;
+drivers/char/cyclades.c-3654-            goto check_and_exit;
+drivers/char/cyclades.c-3655-    }
+drivers/char/cyclades.c-3656-
+drivers/char/cyclades.c-3657-
+--
+drivers/char/drm-4.0/ffb_drv.c-824-			break;
+drivers/char/drm-4.0/ffb_drv.c-825-	}
+drivers/char/drm-4.0/ffb_drv.c-826-
+drivers/char/drm-4.0/ffb_drv.c-827-	if (i >= dev->map_count)
+drivers/char/drm-4.0/ffb_drv.c-828-		return -EINVAL;
+drivers/char/drm-4.0/ffb_drv.c-829-
+drivers/char/drm-4.0/ffb_drv.c-830-	if (!map ||
+drivers/char/drm-4.0/ffb_drv.c-831-	    ((map->flags & _DRM_RESTRICTED) && !capable(CAP_SYS_ADMIN)))
+drivers/char/drm-4.0/ffb_drv.c:832:		return -EPERM;
+drivers/char/drm-4.0/ffb_drv.c-833-
+drivers/char/drm-4.0/ffb_drv.c-834-	if (map->size != (vma->vm_end - vma->vm_start))
+drivers/char/drm-4.0/ffb_drv.c-835-		return -EINVAL;
+drivers/char/drm-4.0/ffb_drv.c-836-
+drivers/char/drm-4.0/ffb_drv.c-837-	/* Set read-only attribute before mappings are created
+drivers/char/drm-4.0/ffb_drv.c-838-	 * so it works for fb/reg maps too.
+drivers/char/drm-4.0/ffb_drv.c-839-	 */
+drivers/char/drm-4.0/ffb_drv.c-840-	if (map->flags & _DRM_READ_ONLY)
+--
+drivers/char/drm-4.0/i810_dma.c-1405-	}
+drivers/char/drm-4.0/i810_dma.c-1406-   
+drivers/char/drm-4.0/i810_dma.c-1407-   	if (copy_from_user(&d, (drm_i810_copy_t *)arg, sizeof(d)))
+drivers/char/drm-4.0/i810_dma.c-1408-		return -EFAULT;
+drivers/char/drm-4.0/i810_dma.c-1409-
+drivers/char/drm-4.0/i810_dma.c-1410-	if(d.idx < 0 || d.idx > dma->buf_count) return -EINVAL;
+drivers/char/drm-4.0/i810_dma.c-1411-	buf = dma->buflist[ d.idx ];
+drivers/char/drm-4.0/i810_dma.c-1412-   	buf_priv = buf->dev_private;
+drivers/char/drm-4.0/i810_dma.c:1413:	if (buf_priv->currently_mapped != I810_BUF_MAPPED) return -EPERM;
+drivers/char/drm-4.0/i810_dma.c-1414-
+drivers/char/drm-4.0/i810_dma.c-1415-	/* Stopping end users copying their data to the entire kernel
+drivers/char/drm-4.0/i810_dma.c-1416-	   is good.. */
+drivers/char/drm-4.0/i810_dma.c-1417-	if (d.used < 0 || d.used > buf->total)
+drivers/char/drm-4.0/i810_dma.c-1418-		return -EINVAL;
+drivers/char/drm-4.0/i810_dma.c-1419-		
+drivers/char/drm-4.0/i810_dma.c-1420-   	if (copy_from_user(buf_priv->virtual, d.address, d.used))
+drivers/char/drm-4.0/i810_dma.c-1421-		return -EFAULT;
+--
+drivers/char/drm-4.0/vm.c-289-				   bit longer. */
+drivers/char/drm-4.0/vm.c-290-	for (i = 0; i < dev->map_count; i++) {
+drivers/char/drm-4.0/vm.c-291-		map = dev->maplist[i];
+drivers/char/drm-4.0/vm.c-292-		if (map->offset == VM_OFFSET(vma)) break;
+drivers/char/drm-4.0/vm.c-293-	}
+drivers/char/drm-4.0/vm.c-294-	
+drivers/char/drm-4.0/vm.c-295-	if (i >= dev->map_count) return -EINVAL;
+drivers/char/drm-4.0/vm.c-296-	if (!map || ((map->flags&_DRM_RESTRICTED) && !capable(CAP_SYS_ADMIN)))
+drivers/char/drm-4.0/vm.c:297:		return -EPERM;
+drivers/char/drm-4.0/vm.c-298-
+drivers/char/drm-4.0/vm.c-299-				/* Check for valid size. */
+drivers/char/drm-4.0/vm.c-300-	if (map->size != vma->vm_end - vma->vm_start) return -EINVAL;
+drivers/char/drm-4.0/vm.c-301-	
+drivers/char/drm-4.0/vm.c-302-	if (!capable(CAP_SYS_ADMIN) && (map->flags & _DRM_READ_ONLY)) {
+drivers/char/drm-4.0/vm.c-303-		vma->vm_flags &= VM_MAYWRITE;
+drivers/char/drm-4.0/vm.c-304-#if defined(__i386__)
+drivers/char/drm-4.0/vm.c-305-		pgprot_val(vma->vm_page_prot) &= ~_PAGE_RW;
+--
+drivers/char/drm/drm_drv.h-577-
+drivers/char/drm/drm_drv.h-578-	for (i = 0; i < DRM(numdevs); i++) {
+drivers/char/drm/drm_drv.h-579-		dev = &(DRM(device)[i]);
+drivers/char/drm/drm_drv.h-580-		memset( (void *)dev, 0, sizeof(*dev) );
+drivers/char/drm/drm_drv.h-581-		dev->count_lock = SPIN_LOCK_UNLOCKED;
+drivers/char/drm/drm_drv.h-582-		sema_init( &dev->struct_sem, 1 );
+drivers/char/drm/drm_drv.h-583-
+drivers/char/drm/drm_drv.h-584-		if ((DRM(minor)[i] = DRM(stub_register)(DRIVER_NAME, &DRM(fops),dev)) < 0)
+drivers/char/drm/drm_drv.h:585:			return -EPERM;
+drivers/char/drm/drm_drv.h-586-		dev->device = MKDEV(DRM_MAJOR, DRM(minor)[i] );
+drivers/char/drm/drm_drv.h-587-		dev->name   = DRIVER_NAME;
+drivers/char/drm/drm_drv.h-588-
+drivers/char/drm/drm_drv.h-589-#if __REALLY_HAVE_AGP
+drivers/char/drm/drm_drv.h-590-		dev->agp = DRM(agp_init)();
+drivers/char/drm/drm_drv.h-591-#if __MUST_HAVE_AGP
+drivers/char/drm/drm_drv.h-592-		if ( dev->agp == NULL ) {
+drivers/char/drm/drm_drv.h-593-			DRM_ERROR( "Cannot initialize the agpgart module.\n" );
+--
+drivers/char/drm/drm_vm.h-390-		r_list = (drm_map_list_t *)list;
+drivers/char/drm/drm_vm.h-391-		map = r_list->map;
+drivers/char/drm/drm_vm.h-392-		if (!map) continue;
+drivers/char/drm/drm_vm.h-393-		off = DRIVER_GET_MAP_OFS();
+drivers/char/drm/drm_vm.h-394-		if (off == VM_OFFSET(vma)) break;
+drivers/char/drm/drm_vm.h-395-	}
+drivers/char/drm/drm_vm.h-396-
+drivers/char/drm/drm_vm.h-397-	if (!map || ((map->flags&_DRM_RESTRICTED) && !capable(CAP_SYS_ADMIN)))
+drivers/char/drm/drm_vm.h:398:		return -EPERM;
+drivers/char/drm/drm_vm.h-399-
+drivers/char/drm/drm_vm.h-400-				/* Check for valid size. */
+drivers/char/drm/drm_vm.h-401-	if (map->size != vma->vm_end - vma->vm_start) return -EINVAL;
+drivers/char/drm/drm_vm.h-402-
+drivers/char/drm/drm_vm.h-403-	if (!capable(CAP_SYS_ADMIN) && (map->flags & _DRM_READ_ONLY)) {
+drivers/char/drm/drm_vm.h-404-		vma->vm_flags &= VM_MAYWRITE;
+drivers/char/drm/drm_vm.h-405-#if defined(__i386__) || defined(__x86_64__)
+drivers/char/drm/drm_vm.h-406-		pgprot_val(vma->vm_page_prot) &= ~_PAGE_RW;
+--
+drivers/char/drm/radeon_mem.c-298-	if (!heap || !*heap)
+drivers/char/drm/radeon_mem.c-299-		return -EFAULT;
+drivers/char/drm/radeon_mem.c-300-	
+drivers/char/drm/radeon_mem.c-301-	block = find_block( *heap, memfree.region_offset );
+drivers/char/drm/radeon_mem.c-302-	if (!block)
+drivers/char/drm/radeon_mem.c-303-		return -EFAULT;
+drivers/char/drm/radeon_mem.c-304-
+drivers/char/drm/radeon_mem.c-305-	if (block->pid != current->pid)
+drivers/char/drm/radeon_mem.c:306:		return -EPERM;
+drivers/char/drm/radeon_mem.c-307-
+drivers/char/drm/radeon_mem.c-308-	free_block( block );	
+drivers/char/drm/radeon_mem.c-309-	return 0;
+drivers/char/drm/radeon_mem.c-310-}
+drivers/char/drm/radeon_mem.c-311-
+drivers/char/drm/radeon_mem.c-312-int radeon_mem_init_heap(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long data)
+drivers/char/drm/radeon_mem.c-313-{
+drivers/char/drm/radeon_mem.c-314-        drm_file_t      *priv   = filp->private_data;
+--
+drivers/char/ds1620.c-238-{
+drivers/char/ds1620.c-239-	struct therm therm;
+drivers/char/ds1620.c-240-	int i;
+drivers/char/ds1620.c-241-
+drivers/char/ds1620.c-242-	switch(cmd) {
+drivers/char/ds1620.c-243-	case CMD_SET_THERMOSTATE:
+drivers/char/ds1620.c-244-	case CMD_SET_THERMOSTATE2:
+drivers/char/ds1620.c-245-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/ds1620.c:246:			return -EPERM;
+drivers/char/ds1620.c-247-
+drivers/char/ds1620.c-248-		if (cmd == CMD_SET_THERMOSTATE) {
+drivers/char/ds1620.c-249-			if (get_user(therm.hi, (int *)arg))
+drivers/char/ds1620.c-250-				return -EFAULT;
+drivers/char/ds1620.c-251-			therm.lo = therm.hi - 3;
+drivers/char/ds1620.c-252-		} else {
+drivers/char/ds1620.c-253-			if (copy_from_user(&therm, (void *)arg, sizeof(therm)))
+drivers/char/ds1620.c-254-				return -EFAULT;
+--
+drivers/char/ds1620.c-292-
+drivers/char/ds1620.c-293-	case CMD_GET_FAN:
+drivers/char/ds1620.c-294-		i = netwinder_get_fan();
+drivers/char/ds1620.c-295-
+drivers/char/ds1620.c-296-		return put_user(i, (int *)arg) ? -EFAULT : 0;
+drivers/char/ds1620.c-297-
+drivers/char/ds1620.c-298-	case CMD_SET_FAN:
+drivers/char/ds1620.c-299-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/ds1620.c:300:			return -EPERM;
+drivers/char/ds1620.c-301-
+drivers/char/ds1620.c-302-		if (get_user(i, (int *)arg))
+drivers/char/ds1620.c-303-			return -EFAULT;
+drivers/char/ds1620.c-304-
+drivers/char/ds1620.c-305-		netwinder_set_fan(i);
+drivers/char/ds1620.c-306-		break;
+drivers/char/ds1620.c-307-		
+drivers/char/ds1620.c-308-	default:
+--
+drivers/char/dz.c-881-		return -EFAULT;
+drivers/char/dz.c-882-
+drivers/char/dz.c-883-	if (copy_from_user(&new_serial, new_info, sizeof(new_serial)))
+drivers/char/dz.c-884-		return -EFAULT;
+drivers/char/dz.c-885-
+drivers/char/dz.c-886-	old_info = *info;
+drivers/char/dz.c-887-
+drivers/char/dz.c-888-	if (!capable(CAP_SYS_ADMIN))
+drivers/char/dz.c:889:		return -EPERM;
+drivers/char/dz.c-890-
+drivers/char/dz.c-891-	if (info->count > 1)
+drivers/char/dz.c-892-		return -EBUSY;
+drivers/char/dz.c-893-
+drivers/char/dz.c-894-	/*
+drivers/char/dz.c-895-	 * OK, past this point, all the error checking has been done.
+drivers/char/dz.c-896-	 * At this point, we start making changes.....
+drivers/char/dz.c-897-	 */
+--
+drivers/char/esp.c-1537-	if (change_irq && (info->line % 8))
+drivers/char/esp.c-1538-		return -EINVAL;
+drivers/char/esp.c-1539-
+drivers/char/esp.c-1540-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/esp.c-1541-		if (change_irq || 
+drivers/char/esp.c-1542-		    (new_serial.close_delay != info->close_delay) ||
+drivers/char/esp.c-1543-		    ((new_serial.flags & ~ASYNC_USR_MASK) !=
+drivers/char/esp.c-1544-		     (info->flags & ~ASYNC_USR_MASK)))
+drivers/char/esp.c:1545:			return -EPERM;
+drivers/char/esp.c-1546-		info->flags = ((info->flags & ~ASYNC_USR_MASK) |
+drivers/char/esp.c-1547-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/esp.c-1548-		info->custom_divisor = new_serial.custom_divisor;
+drivers/char/esp.c-1549-	} else {
+drivers/char/esp.c-1550-		if (new_serial.irq == 2)
+drivers/char/esp.c-1551-			new_serial.irq = 9;
+drivers/char/esp.c-1552-
+drivers/char/esp.c-1553-		if (change_irq) {
+--
+drivers/char/esp.c-1630-	unsigned int change_dma;
+drivers/char/esp.c-1631-	int retval = 0;
+drivers/char/esp.c-1632-	struct esp_struct *current_async;
+drivers/char/esp.c-1633-
+drivers/char/esp.c-1634-	/* Perhaps a non-sysadmin user should be able to do some of these */
+drivers/char/esp.c-1635-	/* operations.  I haven't decided yet. */
+drivers/char/esp.c-1636-
+drivers/char/esp.c-1637-	if (!capable(CAP_SYS_ADMIN))
+drivers/char/esp.c:1638:		return -EPERM;
+drivers/char/esp.c-1639-
+drivers/char/esp.c-1640-	if (copy_from_user(&new_config, new_info, sizeof(new_config)))
+drivers/char/esp.c-1641-		return -EFAULT;
+drivers/char/esp.c-1642-
+drivers/char/esp.c-1643-	if ((new_config.flow_on >= new_config.flow_off) ||
+drivers/char/esp.c-1644-	    (new_config.rx_trigger < 1) ||
+drivers/char/esp.c-1645-	    (new_config.tx_trigger < 1) ||
+drivers/char/esp.c-1646-	    (new_config.flow_off < 1) ||
+--
+drivers/char/esp.c-1902-		case TIOCSERGWILD:
+drivers/char/esp.c-1903-			return put_user(0L, (unsigned long *) arg);
+drivers/char/esp.c-1904-
+drivers/char/esp.c-1905-		case TIOCSERGETLSR: /* Get line status register */
+drivers/char/esp.c-1906-			    return get_lsr_info(info, (unsigned int *) arg);
+drivers/char/esp.c-1907-
+drivers/char/esp.c-1908-		case TIOCSERSWILD:
+drivers/char/esp.c-1909-			if (!capable(CAP_SYS_ADMIN))
+drivers/char/esp.c:1910:				return -EPERM;
+drivers/char/esp.c-1911-			return 0;
+drivers/char/esp.c-1912-
+drivers/char/esp.c-1913-		/*
+drivers/char/esp.c-1914-		 * Wait for any of the 4 modem inputs (DCD,RI,DSR,CTS) to change
+drivers/char/esp.c-1915-		 * - mask passed in arg for lines of interest
+drivers/char/esp.c-1916- 		 *   (use |'ed TIOCM_RNG/DSR/CD/CTS for masking)
+drivers/char/esp.c-1917-		 * Caller should use TIOCGICOUNT to see which one it was
+drivers/char/esp.c-1918-		 */
+--
+drivers/char/fetchop.c-277-	unsigned long maddr;
+drivers/char/fetchop.c-278-	int pages;
+drivers/char/fetchop.c-279-	struct vma_data *vdata;
+drivers/char/fetchop.c-280-
+drivers/char/fetchop.c-281-	if (vma->vm_pgoff != 0)
+drivers/char/fetchop.c-282-		return -EINVAL;
+drivers/char/fetchop.c-283-
+drivers/char/fetchop.c-284-	if ((vma->vm_flags&VM_WRITE) == 0)
+drivers/char/fetchop.c:285:		return -EPERM;
+drivers/char/fetchop.c-286-
+drivers/char/fetchop.c-287-	pages = (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
+drivers/char/fetchop.c-288-	if (fetchop_update_stats(1, pages) < 0)
+drivers/char/fetchop.c-289-		return -ENOSPC;
+drivers/char/fetchop.c-290-
+drivers/char/fetchop.c-291-	if (!(vdata=vmalloc(sizeof(struct vma_data)+(pages-1)*sizeof(long)))) {
+drivers/char/fetchop.c-292-		fetchop_update_stats(-1, -pages);
+drivers/char/fetchop.c-293-		return -ENOMEM;
+--
+drivers/char/i8k.c-397-	if (copy_from_user(&val, (int *)arg, sizeof(int))) {
+drivers/char/i8k.c-398-	    return -EFAULT;
+drivers/char/i8k.c-399-	}
+drivers/char/i8k.c-400-	val = i8k_get_fan_status(val);
+drivers/char/i8k.c-401-	break;
+drivers/char/i8k.c-402-
+drivers/char/i8k.c-403-    case I8K_SET_FAN:
+drivers/char/i8k.c-404-	if (restricted && !capable(CAP_SYS_ADMIN)) {
+drivers/char/i8k.c:405:	    return -EPERM;
+drivers/char/i8k.c-406-	}
+drivers/char/i8k.c-407-	if (copy_from_user(&val, (int *)arg, sizeof(int))) {
+drivers/char/i8k.c-408-	    return -EFAULT;
+drivers/char/i8k.c-409-	}
+drivers/char/i8k.c-410-	if (copy_from_user(&speed, (int *)arg+1, sizeof(int))) {
+drivers/char/i8k.c-411-	    return -EFAULT;
+drivers/char/i8k.c-412-	}
+drivers/char/i8k.c-413-	val = i8k_set_fan(val, speed);
+--
+drivers/char/ip2main.c-2688-
+drivers/char/ip2main.c-2689-	old_flags = pCh->flags;
+drivers/char/ip2main.c-2690-	old_baud_divisor = pCh->BaudDivisor;
+drivers/char/ip2main.c-2691-
+drivers/char/ip2main.c-2692-	if ( !suser() ) {
+drivers/char/ip2main.c-2693-		if ( ( ns.close_delay != pCh->ClosingDelay ) ||
+drivers/char/ip2main.c-2694-		    ( (ns.flags & ~ASYNC_USR_MASK) !=
+drivers/char/ip2main.c-2695-		      (pCh->flags & ~ASYNC_USR_MASK) ) ) {
+drivers/char/ip2main.c:2696:			return -EPERM;
+drivers/char/ip2main.c-2697-		}
+drivers/char/ip2main.c-2698-
+drivers/char/ip2main.c-2699-		pCh->flags = (pCh->flags & ~ASYNC_USR_MASK) |
+drivers/char/ip2main.c-2700-			       (ns.flags & ASYNC_USR_MASK);
+drivers/char/ip2main.c-2701-		pCh->BaudDivisor = ns.custom_divisor;
+drivers/char/ip2main.c-2702-	} else {
+drivers/char/ip2main.c-2703-		pCh->flags = (pCh->flags & ~ASYNC_FLAGS) |
+drivers/char/ip2main.c-2704-			       (ns.flags & ASYNC_FLAGS);
+--
+drivers/char/isicom.c-150-	base=isi_card[card].base;
+drivers/char/isicom.c-151-	
+drivers/char/isicom.c-152-	if(base==0)
+drivers/char/isicom.c-153-		return -ENXIO;	/* disabled or not used */
+drivers/char/isicom.c-154-	
+drivers/char/isicom.c-155-	switch(cmd) {
+drivers/char/isicom.c-156-		case MIOCTL_RESET_CARD:
+drivers/char/isicom.c-157-			if (!capable(CAP_SYS_ADMIN))
+drivers/char/isicom.c:158:				return -EPERM;
+drivers/char/isicom.c-159-			printk(KERN_DEBUG "ISILoad:Resetting Card%d at 0x%x ",card+1,base);
+drivers/char/isicom.c-160-								
+drivers/char/isicom.c-161-			inw(base+0x8);
+drivers/char/isicom.c-162-			
+drivers/char/isicom.c-163-			for(i=jiffies+HZ/100;time_before(jiffies, i););
+drivers/char/isicom.c-164-				
+drivers/char/isicom.c-165-			outw(0,base+0x8); /* Reset */
+drivers/char/isicom.c-166-			
+--
+drivers/char/isicom.c-214-#endif				 
+drivers/char/isicom.c-215-				 return -EIO;
+drivers/char/isicom.c-216-			}
+drivers/char/isicom.c-217-			printk("-Done\n");
+drivers/char/isicom.c-218-			return put_user(signature,(unsigned int*)arg);
+drivers/char/isicom.c-219-						
+drivers/char/isicom.c-220-	case	MIOCTL_LOAD_FIRMWARE:
+drivers/char/isicom.c-221-			if (!capable(CAP_SYS_ADMIN))
+drivers/char/isicom.c:222:				return -EPERM;
+drivers/char/isicom.c-223-				
+drivers/char/isicom.c-224-			if(copy_from_user(&frame, (void *) arg, sizeof(bin_frame)))
+drivers/char/isicom.c-225-				return -EFAULT;
+drivers/char/isicom.c-226-			
+drivers/char/isicom.c-227-			if (WaitTillCardIsFree(base))
+drivers/char/isicom.c-228-				return -EIO;
+drivers/char/isicom.c-229-			
+drivers/char/isicom.c-230-			outw(0xf0,base);	/* start upload sequence */ 
+--
+drivers/char/isicom.c-257-			if ((status=inw(base+0x4))!=0) {
+drivers/char/isicom.c-258-				printk(KERN_ERR "ISILoad:Card%d got out of sync.Card Status:0x%x\n",card+1, status);
+drivers/char/isicom.c-259-				return -EIO;
+drivers/char/isicom.c-260-			}	
+drivers/char/isicom.c-261-			return 0;
+drivers/char/isicom.c-262-						
+drivers/char/isicom.c-263-	case	MIOCTL_READ_FIRMWARE:
+drivers/char/isicom.c-264-			if (!capable(CAP_SYS_ADMIN))
+drivers/char/isicom.c:265:				return -EPERM;
+drivers/char/isicom.c-266-				
+drivers/char/isicom.c-267-			if(copy_from_user(&frame, (void *) arg, sizeof(bin_header)))
+drivers/char/isicom.c-268-				return -EFAULT;
+drivers/char/isicom.c-269-			
+drivers/char/isicom.c-270-			if (WaitTillCardIsFree(base))
+drivers/char/isicom.c-271-				return -EIO;
+drivers/char/isicom.c-272-			
+drivers/char/isicom.c-273-			outw(0xf1,base);	/* start download sequence */ 
+--
+drivers/char/isicom.c-304-			}	
+drivers/char/isicom.c-305-			
+drivers/char/isicom.c-306-			if(copy_to_user((void *) arg, &frame, sizeof(bin_frame)))
+drivers/char/isicom.c-307-				return -EFAULT;
+drivers/char/isicom.c-308-			return 0;
+drivers/char/isicom.c-309-	
+drivers/char/isicom.c-310-	case	MIOCTL_XFER_CTRL:
+drivers/char/isicom.c-311-			if (!capable(CAP_SYS_ADMIN))
+drivers/char/isicom.c:312:				return -EPERM;
+drivers/char/isicom.c-313-			if (WaitTillCardIsFree(base)) 
+drivers/char/isicom.c-314-				return -EIO;
+drivers/char/isicom.c-315-					
+drivers/char/isicom.c-316-			outw(0xf2, base);
+drivers/char/isicom.c-317-			outw(0x800, base);
+drivers/char/isicom.c-318-			outw(0x0, base);
+drivers/char/isicom.c-319-			outw(0x0, base);
+drivers/char/isicom.c-320-			InterruptTheCard(base);
+--
+drivers/char/isicom.c-1452-	reconfig_port = ((port->flags & ASYNC_SPD_MASK) != 
+drivers/char/isicom.c-1453-			 (newinfo.flags & ASYNC_SPD_MASK));
+drivers/char/isicom.c-1454-	
+drivers/char/isicom.c-1455-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/isicom.c-1456-		if ((newinfo.close_delay != port->close_delay) ||
+drivers/char/isicom.c-1457-		    (newinfo.closing_wait != port->closing_wait) ||
+drivers/char/isicom.c-1458-		    ((newinfo.flags & ~ASYNC_USR_MASK) != 
+drivers/char/isicom.c-1459-		     (port->flags & ~ASYNC_USR_MASK)))
+drivers/char/isicom.c:1460:			return -EPERM;
+drivers/char/isicom.c-1461-		port->flags = ((port->flags & ~ ASYNC_USR_MASK) |
+drivers/char/isicom.c-1462-				(newinfo.flags & ASYNC_USR_MASK));
+drivers/char/isicom.c-1463-	}	
+drivers/char/isicom.c-1464-	else {
+drivers/char/isicom.c-1465-		port->close_delay = newinfo.close_delay;
+drivers/char/isicom.c-1466-		port->closing_wait = newinfo.closing_wait; 
+drivers/char/isicom.c-1467-		port->flags = ((port->flags & ~ASYNC_FLAGS) | 
+drivers/char/isicom.c-1468-				(newinfo.flags & ASYNC_FLAGS));
+--
+drivers/char/lcd.c-381-	}
+drivers/char/lcd.c-382-
+drivers/char/lcd.c-383-//  Erase the flash
+drivers/char/lcd.c-384-
+drivers/char/lcd.c-385-	case FLASH_Erase: {
+drivers/char/lcd.c-386-
+drivers/char/lcd.c-387-		int ctr=0;
+drivers/char/lcd.c-388-
+drivers/char/lcd.c:389:		if (!capable(CAP_SYS_ADMIN)) return -EPERM;
+drivers/char/lcd.c-390-
+drivers/char/lcd.c-391-		    // Chip Erase Sequence
+drivers/char/lcd.c-392-		WRITE_FLASH( kFlash_Addr1, kFlash_Data1 );
+drivers/char/lcd.c-393-		WRITE_FLASH( kFlash_Addr2, kFlash_Data2 );
+drivers/char/lcd.c-394-		WRITE_FLASH( kFlash_Addr1, kFlash_Erase3 );
+drivers/char/lcd.c-395-		WRITE_FLASH( kFlash_Addr1, kFlash_Data1 );
+drivers/char/lcd.c-396-		WRITE_FLASH( kFlash_Addr2, kFlash_Data2 );
+drivers/char/lcd.c-397-		WRITE_FLASH( kFlash_Addr1, kFlash_Erase6 );
+--
+drivers/char/lcd.c-419-		volatile unsigned long burn_addr;
+drivers/char/lcd.c-420-		unsigned long flags;
+drivers/char/lcd.c-421-		int i;
+drivers/char/lcd.c-422-		unsigned char *rom;
+drivers/char/lcd.c-423-		
+drivers/char/lcd.c-424-
+drivers/char/lcd.c-425-                struct lcd_display display;
+drivers/char/lcd.c-426-
+drivers/char/lcd.c:427:		if (!capable(CAP_SYS_ADMIN)) return -EPERM;
+drivers/char/lcd.c-428-
+drivers/char/lcd.c-429-                if(copy_from_user(&display, (struct lcd_display*)arg, sizeof(struct lcd_display)))
+drivers/char/lcd.c-430-		  return -EFAULT;
+drivers/char/lcd.c-431-		rom = (unsigned char *) kmalloc((128),GFP_ATOMIC);
+drivers/char/lcd.c-432-                if ( rom == NULL ) {
+drivers/char/lcd.c-433-                       printk ("broken\n");
+drivers/char/lcd.c-434-                       return 1;
+drivers/char/lcd.c-435-                   }
+--
+drivers/char/moxa.c-902-		return (0);
+drivers/char/moxa.c-903-	case TIOCGSERIAL:
+drivers/char/moxa.c-904-		return (moxa_get_serial_info(ch, (struct serial_struct *) arg));
+drivers/char/moxa.c-905-
+drivers/char/moxa.c-906-	case TIOCSSERIAL:
+drivers/char/moxa.c-907-		return (moxa_set_serial_info(ch, (struct serial_struct *) arg));
+drivers/char/moxa.c-908-	default:
+drivers/char/moxa.c-909-		if(!capable(CAP_SYS_RAWIO))
+drivers/char/moxa.c:910:			return -EPERM;
+drivers/char/moxa.c-911-		retval = MoxaDriverIoctl(cmd, arg, port);
+drivers/char/moxa.c-912-	}
+drivers/char/moxa.c-913-	return (retval);
+drivers/char/moxa.c-914-}
+drivers/char/moxa.c-915-
+drivers/char/moxa.c-916-static void moxa_throttle(struct tty_struct *tty)
+drivers/char/moxa.c-917-{
+drivers/char/moxa.c-918-	struct moxa_str *ch = (struct moxa_str *) tty->driver_data;
+--
+drivers/char/n_r3964.c-1292-      TRACE_M("r3964_read - msg kfree %x",(int)pMsg);
+drivers/char/n_r3964.c-1293-
+drivers/char/n_r3964.c-1294-      if (copy_to_user(buf,&theMsg, count))
+drivers/char/n_r3964.c-1295-	return -EFAULT;
+drivers/char/n_r3964.c-1296-
+drivers/char/n_r3964.c-1297-      TRACE_PS("read - return %d", count);
+drivers/char/n_r3964.c-1298-      return count;
+drivers/char/n_r3964.c-1299-   }
+drivers/char/n_r3964.c:1300:   return -EPERM;
+drivers/char/n_r3964.c-1301-}
+drivers/char/n_r3964.c-1302-
+drivers/char/n_r3964.c-1303-static ssize_t r3964_write(struct tty_struct * tty, struct file * file,
+drivers/char/n_r3964.c-1304-			   const unsigned char *data, size_t count)
+drivers/char/n_r3964.c-1305-{
+drivers/char/n_r3964.c-1306-   struct r3964_info *pInfo=(struct r3964_info*)tty->disc_data;
+drivers/char/n_r3964.c-1307-   struct r3964_block_header *pHeader;
+drivers/char/n_r3964.c-1308-   struct r3964_client_info *pClient;
+--
+drivers/char/random.c-1628-	switch (cmd) {
+drivers/char/random.c-1629-	case RNDGETENTCNT:
+drivers/char/random.c-1630-		ent_count = random_state->entropy_count;
+drivers/char/random.c-1631-		if (put_user(ent_count, (int *) arg))
+drivers/char/random.c-1632-			return -EFAULT;
+drivers/char/random.c-1633-		return 0;
+drivers/char/random.c-1634-	case RNDADDTOENTCNT:
+drivers/char/random.c-1635-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/random.c:1636:			return -EPERM;
+drivers/char/random.c-1637-		if (get_user(ent_count, (int *) arg))
+drivers/char/random.c-1638-			return -EFAULT;
+drivers/char/random.c-1639-		credit_entropy_store(random_state, ent_count);
+drivers/char/random.c-1640-		/*
+drivers/char/random.c-1641-		 * Wake up waiting processes if we have enough
+drivers/char/random.c-1642-		 * entropy.
+drivers/char/random.c-1643-		 */
+drivers/char/random.c-1644-		if (random_state->entropy_count >= random_read_wakeup_thresh)
+drivers/char/random.c-1645-			wake_up_interruptible(&random_read_wait);
+drivers/char/random.c-1646-		return 0;
+drivers/char/random.c-1647-	case RNDGETPOOL:
+drivers/char/random.c-1648-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/random.c:1649:			return -EPERM;
+drivers/char/random.c-1650-		p = (int *) arg;
+drivers/char/random.c-1651-		ent_count = random_state->entropy_count;
+drivers/char/random.c-1652-		if (put_user(ent_count, p++) ||
+drivers/char/random.c-1653-		    get_user(size, p) ||
+drivers/char/random.c-1654-		    put_user(random_state->poolinfo.poolwords, p++))
+drivers/char/random.c-1655-			return -EFAULT;
+drivers/char/random.c-1656-		if (size < 0)
+drivers/char/random.c-1657-			return -EINVAL;
+drivers/char/random.c-1658-		if (size > random_state->poolinfo.poolwords)
+drivers/char/random.c-1659-			size = random_state->poolinfo.poolwords;
+drivers/char/random.c-1660-		if (copy_to_user(p, random_state->pool, size * sizeof(__u32)))
+drivers/char/random.c-1661-			return -EFAULT;
+drivers/char/random.c-1662-		return 0;
+drivers/char/random.c-1663-	case RNDADDENTROPY:
+drivers/char/random.c-1664-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/random.c:1665:			return -EPERM;
+drivers/char/random.c-1666-		p = (int *) arg;
+drivers/char/random.c-1667-		if (get_user(ent_count, p++))
+drivers/char/random.c-1668-			return -EFAULT;
+drivers/char/random.c-1669-		if (ent_count < 0)
+drivers/char/random.c-1670-			return -EINVAL;
+drivers/char/random.c-1671-		if (get_user(size, p++))
+drivers/char/random.c-1672-			return -EFAULT;
+drivers/char/random.c-1673-		retval = random_write(file, (const char *) p,
+--
+drivers/char/random.c-1679-		 * Wake up waiting processes if we have enough
+drivers/char/random.c-1680-		 * entropy.
+drivers/char/random.c-1681-		 */
+drivers/char/random.c-1682-		if (random_state->entropy_count >= random_read_wakeup_thresh)
+drivers/char/random.c-1683-			wake_up_interruptible(&random_read_wait);
+drivers/char/random.c-1684-		return 0;
+drivers/char/random.c-1685-	case RNDZAPENTCNT:
+drivers/char/random.c-1686-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/random.c:1687:			return -EPERM;
+drivers/char/random.c-1688-		random_state->entropy_count = 0;
+drivers/char/random.c-1689-		return 0;
+drivers/char/random.c-1690-	case RNDCLEARPOOL:
+drivers/char/random.c-1691-		/* Clear the entropy pool and associated counters. */
+drivers/char/random.c-1692-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/random.c:1693:			return -EPERM;
+drivers/char/random.c-1694-		clear_entropy_store(random_state);
+drivers/char/random.c-1695-		init_std_data(random_state);
+drivers/char/random.c-1696-		return 0;
+drivers/char/random.c-1697-	default:
+drivers/char/random.c-1698-		return -EINVAL;
+drivers/char/random.c-1699-	}
+drivers/char/random.c-1700-}
+drivers/char/random.c-1701-
+--
+drivers/char/riscom8.c-1490-	change_speed = ((port->flags & ASYNC_SPD_MASK) !=
+drivers/char/riscom8.c-1491-			(tmp.flags & ASYNC_SPD_MASK));
+drivers/char/riscom8.c-1492-	
+drivers/char/riscom8.c-1493-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/riscom8.c-1494-		if ((tmp.close_delay != port->close_delay) ||
+drivers/char/riscom8.c-1495-		    (tmp.closing_wait != port->closing_wait) ||
+drivers/char/riscom8.c-1496-		    ((tmp.flags & ~ASYNC_USR_MASK) !=
+drivers/char/riscom8.c-1497-		     (port->flags & ~ASYNC_USR_MASK)))  
+drivers/char/riscom8.c:1498:			return -EPERM;
+drivers/char/riscom8.c-1499-		port->flags = ((port->flags & ~ASYNC_USR_MASK) |
+drivers/char/riscom8.c-1500-			       (tmp.flags & ASYNC_USR_MASK));
+drivers/char/riscom8.c-1501-	} else  {
+drivers/char/riscom8.c-1502-		port->flags = ((port->flags & ~ASYNC_FLAGS) |
+drivers/char/riscom8.c-1503-			       (tmp.flags & ASYNC_FLAGS));
+drivers/char/riscom8.c-1504-		port->close_delay = tmp.close_delay;
+drivers/char/riscom8.c-1505-		port->closing_wait = tmp.closing_wait;
+drivers/char/riscom8.c-1506-	}
+--
+drivers/char/rocket.c-1330-#ifdef CAP_SYS_ADMIN
+drivers/char/rocket.c-1331-	if (!capable(CAP_SYS_ADMIN))
+drivers/char/rocket.c-1332-#else
+drivers/char/rocket.c-1333-	if (!suser())
+drivers/char/rocket.c-1334-#endif
+drivers/char/rocket.c-1335-	{
+drivers/char/rocket.c-1336-		if ((new_serial.flags & ~ROCKET_USR_MASK) !=
+drivers/char/rocket.c-1337-		    (info->flags & ~ROCKET_USR_MASK))
+drivers/char/rocket.c:1338:			return -EPERM;
+drivers/char/rocket.c-1339-		info->flags = ((info->flags & ~ROCKET_USR_MASK) |
+drivers/char/rocket.c-1340-			       (new_serial.flags & ROCKET_USR_MASK));
+drivers/char/rocket.c-1341-		configure_r_port(info);
+drivers/char/rocket.c-1342-		return 0;
+drivers/char/rocket.c-1343-	}
+drivers/char/rocket.c-1344-	
+drivers/char/rocket.c-1345-	info->flags = ((info->flags & ~ROCKET_FLAGS) |
+drivers/char/rocket.c-1346-			(new_serial.flags & ROCKET_FLAGS));
+--
+drivers/char/serial.c-2130-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/serial.c-2131-		if (change_irq || change_port ||
+drivers/char/serial.c-2132-		    (new_serial.baud_base != state->baud_base) ||
+drivers/char/serial.c-2133-		    (new_serial.type != state->type) ||
+drivers/char/serial.c-2134-		    (new_serial.close_delay != state->close_delay) ||
+drivers/char/serial.c-2135-		    (new_serial.xmit_fifo_size != state->xmit_fifo_size) ||
+drivers/char/serial.c-2136-		    ((new_serial.flags & ~ASYNC_USR_MASK) !=
+drivers/char/serial.c-2137-		     (state->flags & ~ASYNC_USR_MASK)))
+drivers/char/serial.c:2138:			return -EPERM;
+drivers/char/serial.c-2139-		state->flags = ((state->flags & ~ASYNC_USR_MASK) |
+drivers/char/serial.c-2140-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/serial.c-2141-		info->flags = ((info->flags & ~ASYNC_USR_MASK) |
+drivers/char/serial.c-2142-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/serial.c-2143-		state->custom_divisor = new_serial.custom_divisor;
+drivers/char/serial.c-2144-		goto check_and_exit;
+drivers/char/serial.c-2145-	}
+drivers/char/serial.c-2146-
+--
+drivers/char/serial.c-2378-	return 0;
+drivers/char/serial.c-2379-}
+drivers/char/serial.c-2380-
+drivers/char/serial.c-2381-static int do_autoconfig(struct async_struct * info)
+drivers/char/serial.c-2382-{
+drivers/char/serial.c-2383-	int irq, retval;
+drivers/char/serial.c-2384-	
+drivers/char/serial.c-2385-	if (!capable(CAP_SYS_ADMIN))
+drivers/char/serial.c:2386:		return -EPERM;
+drivers/char/serial.c-2387-	
+drivers/char/serial.c-2388-	if (info->state->count > 1)
+drivers/char/serial.c-2389-		return -EBUSY;
+drivers/char/serial.c-2390-	
+drivers/char/serial.c-2391-	shutdown(info);
+drivers/char/serial.c-2392-
+drivers/char/serial.c-2393-	autoconfig(info->state);
+drivers/char/serial.c-2394-	if ((info->state->flags & ASYNC_AUTO_IRQ) &&
+--
+drivers/char/serial.c-2484-	struct serial_multiport_struct new_multi;
+drivers/char/serial.c-2485-	struct rs_multiport_struct *multi;
+drivers/char/serial.c-2486-	struct serial_state *state;
+drivers/char/serial.c-2487-	int	was_multi, now_multi;
+drivers/char/serial.c-2488-	int	retval;
+drivers/char/serial.c-2489-	void (*handler)(int, void *, struct pt_regs *);
+drivers/char/serial.c-2490-
+drivers/char/serial.c-2491-	if (!capable(CAP_SYS_ADMIN))
+drivers/char/serial.c:2492:		return -EPERM;
+drivers/char/serial.c-2493-	state = info->state;
+drivers/char/serial.c-2494-	
+drivers/char/serial.c-2495-	if (copy_from_user(&new_multi, in_multi,
+drivers/char/serial.c-2496-			   sizeof(struct serial_multiport_struct)))
+drivers/char/serial.c-2497-		return -EFAULT;
+drivers/char/serial.c-2498-	
+drivers/char/serial.c-2499-	if (new_multi.irq != state->irq || state->irq == 0 ||
+drivers/char/serial.c-2500-	    !IRQ_ports[state->irq])
+--
+drivers/char/serial167.c-1467-    if (copy_from_user(&new_serial,new_info,sizeof(new_serial)))
+drivers/char/serial167.c-1468-	    return -EFAULT;
+drivers/char/serial167.c-1469-    old_info = *info;
+drivers/char/serial167.c-1470-
+drivers/char/serial167.c-1471-    if (!suser()) {
+drivers/char/serial167.c-1472-	    if ((new_serial.close_delay != info->close_delay) ||
+drivers/char/serial167.c-1473-		((new_serial.flags & ASYNC_FLAGS & ~ASYNC_USR_MASK) !=
+drivers/char/serial167.c-1474-		 (info->flags & ASYNC_FLAGS & ~ASYNC_USR_MASK)))
+drivers/char/serial167.c:1475:		    return -EPERM;
+drivers/char/serial167.c-1476-	    info->flags = ((info->flags & ~ASYNC_USR_MASK) |
+drivers/char/serial167.c-1477-			   (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/serial167.c-1478-	    goto check_and_exit;
+drivers/char/serial167.c-1479-    }
+drivers/char/serial167.c-1480-
+drivers/char/serial167.c-1481-
+drivers/char/serial167.c-1482-    /*
+drivers/char/serial167.c-1483-     * OK, past this point, all the error checking has been done.
+--
+drivers/char/serial_amba.c-1058-
+drivers/char/serial_amba.c-1059-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/serial_amba.c-1060-		if (change_irq || change_port ||
+drivers/char/serial_amba.c-1061-		    (new_serial.baud_base != port->uartclk / 16) ||
+drivers/char/serial_amba.c-1062-		    (new_serial.close_delay != state->close_delay) ||
+drivers/char/serial_amba.c-1063-		    (new_serial.xmit_fifo_size != port->fifosize) ||
+drivers/char/serial_amba.c-1064-		    ((new_serial.flags & ~ASYNC_USR_MASK) !=
+drivers/char/serial_amba.c-1065-		     (state->flags & ~ASYNC_USR_MASK)))
+drivers/char/serial_amba.c:1066:			return -EPERM;
+drivers/char/serial_amba.c-1067-		state->flags = ((state->flags & ~ASYNC_USR_MASK) |
+drivers/char/serial_amba.c-1068-				(new_serial.flags & ASYNC_USR_MASK));
+drivers/char/serial_amba.c-1069-		info->flags = ((info->flags & ~ASYNC_USR_MASK) |
+drivers/char/serial_amba.c-1070-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/serial_amba.c-1071-		state->custom_divisor = new_serial.custom_divisor;
+drivers/char/serial_amba.c-1072-		goto check_and_exit;
+drivers/char/serial_amba.c-1073-	}
+drivers/char/serial_amba.c-1074-
+--
+drivers/char/sgiserial.c-1202-	old_info = *info;
+drivers/char/sgiserial.c-1203-
+drivers/char/sgiserial.c-1204-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/sgiserial.c-1205-		if ((new_serial.baud_base != info->baud_base) ||
+drivers/char/sgiserial.c-1206-		    (new_serial.type != info->type) ||
+drivers/char/sgiserial.c-1207-		    (new_serial.close_delay != info->close_delay) ||
+drivers/char/sgiserial.c-1208-		    ((new_serial.flags & ~ZILOG_USR_MASK) !=
+drivers/char/sgiserial.c-1209-		     (info->flags & ~ZILOG_USR_MASK)))
+drivers/char/sgiserial.c:1210:			return -EPERM;
+drivers/char/sgiserial.c-1211-		info->flags = ((info->flags & ~ZILOG_USR_MASK) |
+drivers/char/sgiserial.c-1212-			       (new_serial.flags & ZILOG_USR_MASK));
+drivers/char/sgiserial.c-1213-		info->custom_divisor = new_serial.custom_divisor;
+drivers/char/sgiserial.c-1214-		goto check_and_exit;
+drivers/char/sgiserial.c-1215-	}
+drivers/char/sgiserial.c-1216-
+drivers/char/sgiserial.c-1217-	if (info->count > 1)
+drivers/char/sgiserial.c-1218-		return -EBUSY;
+--
+drivers/char/specialix.c-1923-			(tmp.flags & ASYNC_SPD_MASK));
+drivers/char/specialix.c-1924-	change_speed |= (tmp.custom_divisor != port->custom_divisor);
+drivers/char/specialix.c-1925-	
+drivers/char/specialix.c-1926-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/specialix.c-1927-		if ((tmp.close_delay != port->close_delay) ||
+drivers/char/specialix.c-1928-		    (tmp.closing_wait != port->closing_wait) ||
+drivers/char/specialix.c-1929-		    ((tmp.flags & ~ASYNC_USR_MASK) !=
+drivers/char/specialix.c-1930-		     (port->flags & ~ASYNC_USR_MASK)))
+drivers/char/specialix.c:1931:			return -EPERM;
+drivers/char/specialix.c-1932-		port->flags = ((port->flags & ~ASYNC_USR_MASK) |
+drivers/char/specialix.c-1933-		                  (tmp.flags & ASYNC_USR_MASK));
+drivers/char/specialix.c-1934-		port->custom_divisor = tmp.custom_divisor;
+drivers/char/specialix.c-1935-	} else {
+drivers/char/specialix.c-1936-		port->flags = ((port->flags & ~ASYNC_FLAGS) |
+drivers/char/specialix.c-1937-		                  (tmp.flags & ASYNC_FLAGS));
+drivers/char/specialix.c-1938-		port->close_delay = tmp.close_delay;
+drivers/char/specialix.c-1939-		port->closing_wait = tmp.closing_wait;
+--
+drivers/char/sx.c-1660-	char *tmp;
+drivers/char/sx.c-1661-
+drivers/char/sx.c-1662-	func_enter();
+drivers/char/sx.c-1663-
+drivers/char/sx.c-1664-#if 0 
+drivers/char/sx.c-1665-	/* Removed superuser check: Sysops can use the permissions on the device
+drivers/char/sx.c-1666-	   file to restrict access. Recommendation: Root only. (root.root 600) */
+drivers/char/sx.c-1667-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/sx.c:1668:		return -EPERM;
+drivers/char/sx.c-1669-	}
+drivers/char/sx.c-1670-#endif
+drivers/char/sx.c-1671-
+drivers/char/sx.c-1672-	sx_dprintk (SX_DEBUG_FIRMWARE, "IOCTL %x: %lx\n", cmd, arg);
+drivers/char/sx.c-1673-
+drivers/char/sx.c-1674-	if (!board) board = &boards[0];
+drivers/char/sx.c-1675-	if (board->flags & SX_BOARD_PRESENT) {
+drivers/char/sx.c-1676-		sx_dprintk (SX_DEBUG_FIRMWARE, "Board present! (%x)\n", 
+--
+drivers/char/sx.c-1699-		if (IS_CF_BOARD (board)) rc = SX_TYPE_CF;
+drivers/char/sx.c-1700-		if (IS_SI_BOARD (board)) rc = SX_TYPE_SI;
+drivers/char/sx.c-1701-		if (IS_SI1_BOARD (board)) rc = SX_TYPE_SI;
+drivers/char/sx.c-1702-		if (IS_EISA_BOARD (board)) rc = SX_TYPE_SI;
+drivers/char/sx.c-1703-		sx_dprintk (SX_DEBUG_FIRMWARE, "returning type= %d\n", rc);
+drivers/char/sx.c-1704-		break;
+drivers/char/sx.c-1705-	case SXIO_DO_RAMTEST:
+drivers/char/sx.c-1706-		if (sx_initialized) /* Already initialized: better not ramtest the board.  */
+drivers/char/sx.c:1707:			return -EPERM;
+drivers/char/sx.c-1708-		if (IS_SX_BOARD (board)) {
+drivers/char/sx.c-1709-			rc          = do_memtest   (board, 0, 0x7000);
+drivers/char/sx.c-1710-			if (!rc) rc = do_memtest   (board, 0, 0x7000);
+drivers/char/sx.c-1711-			/*if (!rc) rc = do_memtest_w (board, 0, 0x7000);*/
+drivers/char/sx.c-1712-		} else {
+drivers/char/sx.c-1713-			rc             = do_memtest   (board, 0, 0x7ff8);
+drivers/char/sx.c-1714-			/* if (!rc) rc = do_memtest_w (board, 0, 0x7ff8); */
+drivers/char/sx.c-1715-		}
+--
+drivers/char/tpqic02.c-2186-		printk("qic02_tape_open: dev=%s, flags=%x     ",
+drivers/char/tpqic02.c-2187-		       kdevname(dev), flags);
+drivers/char/tpqic02.c-2188-	}
+drivers/char/tpqic02.c-2189-
+drivers/char/tpqic02.c-2190-	if (MINOR(dev) == 255) {	/* special case for resetting */
+drivers/char/tpqic02.c-2191-		if (capable(CAP_SYS_ADMIN)) {
+drivers/char/tpqic02.c-2192-			return (tape_reset(1) == TE_OK) ? -EAGAIN : -ENXIO;
+drivers/char/tpqic02.c-2193-		} else {
+drivers/char/tpqic02.c:2194:			return -EPERM;
+drivers/char/tpqic02.c-2195-		}
+drivers/char/tpqic02.c-2196-	}
+drivers/char/tpqic02.c-2197-
+drivers/char/tpqic02.c-2198-	if (status_dead == YES) {
+drivers/char/tpqic02.c-2199-		/* Allow `mt reset' ioctl() even when already open()ed. */
+drivers/char/tpqic02.c-2200-		return 0;
+drivers/char/tpqic02.c-2201-	}
+drivers/char/tpqic02.c-2202-
+--
+drivers/char/tpqic02.c-2558-		 * user-settings, then write back with MTIOCSETCONFIG.
+drivers/char/tpqic02.c-2559-		 * The qic02conf program should re-open() the device before actual
+drivers/char/tpqic02.c-2560-		 * use, to make sure everything is initialized.
+drivers/char/tpqic02.c-2561-		 */
+drivers/char/tpqic02.c-2562-
+drivers/char/tpqic02.c-2563-		CHECK_IOC_SIZE(mtconfiginfo);
+drivers/char/tpqic02.c-2564-
+drivers/char/tpqic02.c-2565-		if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/tpqic02.c:2566:			return -EPERM;
+drivers/char/tpqic02.c-2567-		}
+drivers/char/tpqic02.c-2568-
+drivers/char/tpqic02.c-2569-		if ((doing_read != NO) || (doing_write != NO)) {
+drivers/char/tpqic02.c-2570-			return -EBUSY;
+drivers/char/tpqic02.c-2571-		}
+drivers/char/tpqic02.c-2572-
+drivers/char/tpqic02.c-2573-		if (status_zombie == NO) {
+drivers/char/tpqic02.c-2574-			qic02_release_resources();	/* and go zombie */
+--
+drivers/char/tty_io.c-1878-}
+drivers/char/tty_io.c-1879-
+drivers/char/tty_io.c-1880-static int tiocsti(struct tty_struct *tty, char * arg)
+drivers/char/tty_io.c-1881-{
+drivers/char/tty_io.c-1882-	char ch, mbz = 0;
+drivers/char/tty_io.c-1883-	struct tty_ldisc *ld;
+drivers/char/tty_io.c-1884-
+drivers/char/tty_io.c-1885-	if ((current->tty != tty) && !suser())
+drivers/char/tty_io.c:1886:		return -EPERM;
+drivers/char/tty_io.c-1887-	if (get_user(ch, arg))
+drivers/char/tty_io.c-1888-		return -EFAULT;
+drivers/char/tty_io.c-1889-	ld = tty_ldisc_ref_wait(tty);
+drivers/char/tty_io.c-1890-	ld->receive_buf(tty, &ch, &mbz, 1);
+drivers/char/tty_io.c-1891-	tty_ldisc_deref(ld);
+drivers/char/tty_io.c-1892-	return 0;
+drivers/char/tty_io.c-1893-}
+drivers/char/tty_io.c-1894-
+--
+drivers/char/tty_io.c-1918-}
+drivers/char/tty_io.c-1919-
+drivers/char/tty_io.c-1920-static int tioccons(struct inode *inode, struct file *file)
+drivers/char/tty_io.c-1921-{
+drivers/char/tty_io.c-1922-	if (inode->i_rdev == SYSCONS_DEV ||
+drivers/char/tty_io.c-1923-	    inode->i_rdev == CONSOLE_DEV) {
+drivers/char/tty_io.c-1924-		struct file *f;
+drivers/char/tty_io.c-1925-		if (!suser())
+drivers/char/tty_io.c:1926:			return -EPERM;
+drivers/char/tty_io.c-1927-		spin_lock(&redirect_lock);
+drivers/char/tty_io.c-1928-		f = redirect;
+drivers/char/tty_io.c-1929-		redirect = NULL;
+drivers/char/tty_io.c-1930-		spin_unlock(&redirect_lock);
+drivers/char/tty_io.c-1931-		if (f)
+drivers/char/tty_io.c-1932-			fput(f);
+drivers/char/tty_io.c-1933-		return 0;
+drivers/char/tty_io.c-1934-	}
+--
+drivers/char/tty_io.c-1963-	if (current->leader &&
+drivers/char/tty_io.c-1964-	    (current->session == tty->session))
+drivers/char/tty_io.c-1965-		return 0;
+drivers/char/tty_io.c-1966-	/*
+drivers/char/tty_io.c-1967-	 * The process must be a session leader and
+drivers/char/tty_io.c-1968-	 * not have a controlling tty already.
+drivers/char/tty_io.c-1969-	 */
+drivers/char/tty_io.c-1970-	if (!current->leader || current->tty)
+drivers/char/tty_io.c:1971:		return -EPERM;
+drivers/char/tty_io.c-1972-	if (tty->session > 0) {
+drivers/char/tty_io.c-1973-		/*
+drivers/char/tty_io.c-1974-		 * This tty is already the controlling
+drivers/char/tty_io.c-1975-		 * tty for another session group!
+drivers/char/tty_io.c-1976-		 */
+drivers/char/tty_io.c-1977-		if ((arg == 1) && suser()) {
+drivers/char/tty_io.c-1978-			/*
+drivers/char/tty_io.c-1979-			 * Steal it away
+--
+drivers/char/tty_io.c-1981-			struct task_struct *p;
+drivers/char/tty_io.c-1982-
+drivers/char/tty_io.c-1983-			read_lock(&tasklist_lock);
+drivers/char/tty_io.c-1984-			for_each_task(p)
+drivers/char/tty_io.c-1985-				if (p->tty == tty)
+drivers/char/tty_io.c-1986-					p->tty = NULL;
+drivers/char/tty_io.c-1987-			read_unlock(&tasklist_lock);
+drivers/char/tty_io.c-1988-		} else
+drivers/char/tty_io.c:1989:			return -EPERM;
+drivers/char/tty_io.c-1990-	}
+drivers/char/tty_io.c-1991-	task_lock(current);
+drivers/char/tty_io.c-1992-	current->tty = tty;
+drivers/char/tty_io.c-1993-	task_unlock(current);
+drivers/char/tty_io.c-1994-	current->tty_old_pgrp = 0;
+drivers/char/tty_io.c-1995-	tty->session = current->session;
+drivers/char/tty_io.c-1996-	tty->pgrp = current->pgrp;
+drivers/char/tty_io.c-1997-	return 0;
+--
+drivers/char/tty_io.c-2021-	    (current->tty != real_tty) ||
+drivers/char/tty_io.c-2022-	    (real_tty->session != current->session))
+drivers/char/tty_io.c-2023-		return -ENOTTY;
+drivers/char/tty_io.c-2024-	if (get_user(pgrp, (pid_t *) arg))
+drivers/char/tty_io.c-2025-		return -EFAULT;
+drivers/char/tty_io.c-2026-	if (pgrp < 0)
+drivers/char/tty_io.c-2027-		return -EINVAL;
+drivers/char/tty_io.c-2028-	if (session_of_pgrp(pgrp) != current->session)
+drivers/char/tty_io.c:2029:		return -EPERM;
+drivers/char/tty_io.c-2030-	real_tty->pgrp = pgrp;
+drivers/char/tty_io.c-2031-	return 0;
+drivers/char/tty_io.c-2032-}
+drivers/char/tty_io.c-2033-
+drivers/char/tty_io.c-2034-static int tiocgsid(struct tty_struct *tty, struct tty_struct *real_tty, pid_t *arg)
+drivers/char/tty_io.c-2035-{
+drivers/char/tty_io.c-2036-	/*
+drivers/char/tty_io.c-2037-	 * (tty == real_tty) is a cheap way of
+--
+drivers/char/tty_ioctl.c-497-			return put_user(retval, (unsigned int *) arg);
+drivers/char/tty_ioctl.c-498-		case TIOCGLCKTRMIOS:
+drivers/char/tty_ioctl.c-499-			if (kernel_termios_to_user_termios((struct termios *)arg, real_tty->termios_locked))
+drivers/char/tty_ioctl.c-500-				return -EFAULT;
+drivers/char/tty_ioctl.c-501-			return 0;
+drivers/char/tty_ioctl.c-502-
+drivers/char/tty_ioctl.c-503-		case TIOCSLCKTRMIOS:
+drivers/char/tty_ioctl.c-504-			if (!capable(CAP_SYS_ADMIN))
+drivers/char/tty_ioctl.c:505:				return -EPERM;
+drivers/char/tty_ioctl.c-506-			if (user_termios_to_kernel_termios(real_tty->termios_locked, (struct termios *) arg))
+drivers/char/tty_ioctl.c-507-				return -EFAULT;
+drivers/char/tty_ioctl.c-508-			return 0;
+drivers/char/tty_ioctl.c-509-
+drivers/char/tty_ioctl.c-510-		case TIOCPKT:
+drivers/char/tty_ioctl.c-511-		{
+drivers/char/tty_ioctl.c-512-			int pktmode;
+drivers/char/tty_ioctl.c-513-
+--
+drivers/char/vac-serial.c-1288-	if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/vac-serial.c-1289-		if (change_irq || change_port ||
+drivers/char/vac-serial.c-1290-		    (new_serial.baud_base != state->baud_base) ||
+drivers/char/vac-serial.c-1291-		    (new_serial.type != state->type) ||
+drivers/char/vac-serial.c-1292-		    (new_serial.close_delay != state->close_delay) ||
+drivers/char/vac-serial.c-1293-		    (new_serial.xmit_fifo_size != state->xmit_fifo_size) ||
+drivers/char/vac-serial.c-1294-		    ((new_serial.flags & ~ASYNC_USR_MASK) !=
+drivers/char/vac-serial.c-1295-		     (state->flags & ~ASYNC_USR_MASK)))
+drivers/char/vac-serial.c:1296:			return -EPERM;
+drivers/char/vac-serial.c-1297-		state->flags = ((state->flags & ~ASYNC_USR_MASK) |
+drivers/char/vac-serial.c-1298-			       (new_serial.flags & ASYNC_USR_MASK));
+drivers/char/vac-serial.c-1299-		info->flags = ((state->flags & ~ASYNC_USR_MASK) |
+drivers/char/vac-serial.c-1300-			       (info->flags & ASYNC_USR_MASK));
+drivers/char/vac-serial.c-1301-		state->custom_divisor = new_serial.custom_divisor;
+drivers/char/vac-serial.c-1302-		goto check_and_exit;
+drivers/char/vac-serial.c-1303-	}
+drivers/char/vac-serial.c-1304-
+--
+drivers/char/vac-serial.c-1430-	return 0;
+drivers/char/vac-serial.c-1431-}
+drivers/char/vac-serial.c-1432-
+drivers/char/vac-serial.c-1433-static int do_autoconfig(struct async_struct * info)
+drivers/char/vac-serial.c-1434-{
+drivers/char/vac-serial.c-1435-	int			retval;
+drivers/char/vac-serial.c-1436-
+drivers/char/vac-serial.c-1437-	if (!capable(CAP_SYS_ADMIN))
+drivers/char/vac-serial.c:1438:		return -EPERM;
+drivers/char/vac-serial.c-1439-
+drivers/char/vac-serial.c-1440-	if (info->state->count > 1)
+drivers/char/vac-serial.c-1441-		return -EBUSY;
+drivers/char/vac-serial.c-1442-
+drivers/char/vac-serial.c-1443-	shutdown(info);
+drivers/char/vac-serial.c-1444-
+drivers/char/vac-serial.c-1445-	autoconfig(info->state);
+drivers/char/vac-serial.c-1446-
+--
+drivers/char/vt.c-176-		    val = U(key_map[i]);
+drivers/char/vt.c-177-		    if (kbd->kbdmode != VC_UNICODE && KTYP(val) >= NR_TYPES)
+drivers/char/vt.c-178-			val = K_HOLE;
+drivers/char/vt.c-179-		} else
+drivers/char/vt.c-180-		    val = (i ? K_HOLE : K_NOSUCHMAP);
+drivers/char/vt.c-181-		return put_user(val, &user_kbe->kb_value);
+drivers/char/vt.c-182-	case KDSKBENT:
+drivers/char/vt.c-183-		if (!perm)
+drivers/char/vt.c:184:			return -EPERM;
+drivers/char/vt.c-185-		if (!i && v == K_NOSUCHMAP) {
+drivers/char/vt.c-186-			/* disallocate map */
+drivers/char/vt.c-187-			key_map = key_maps[s];
+drivers/char/vt.c-188-			if (s && key_map) {
+drivers/char/vt.c-189-			    key_maps[s] = 0;
+drivers/char/vt.c-190-			    if (key_map[0] == U(K_ALLOCATED)) {
+drivers/char/vt.c-191-					kfree(key_map);
+drivers/char/vt.c-192-					keymap_count--;
+--
+drivers/char/vt.c-209-			break;
+drivers/char/vt.c-210-#endif
+drivers/char/vt.c-211-
+drivers/char/vt.c-212-		if (!(key_map = key_maps[s])) {
+drivers/char/vt.c-213-			int j;
+drivers/char/vt.c-214-
+drivers/char/vt.c-215-			if (keymap_count >= MAX_NR_OF_USER_KEYMAPS &&
+drivers/char/vt.c-216-			    !capable(CAP_SYS_RESOURCE))
+drivers/char/vt.c:217:				return -EPERM;
+drivers/char/vt.c-218-
+drivers/char/vt.c-219-			key_map = (ushort *) kmalloc(sizeof(plain_map),
+drivers/char/vt.c-220-						     GFP_KERNEL);
+drivers/char/vt.c-221-			if (!key_map)
+drivers/char/vt.c-222-				return -ENOMEM;
+drivers/char/vt.c-223-			key_maps[s] = key_map;
+drivers/char/vt.c-224-			key_map[0] = U(K_ALLOCATED);
+drivers/char/vt.c-225-			for (j = 1; j < NR_KEYS; j++)
+--
+drivers/char/vt.c-228-		}
+drivers/char/vt.c-229-		ov = U(key_map[i]);
+drivers/char/vt.c-230-		if (v == ov)
+drivers/char/vt.c-231-			break;	/* nothing to do */
+drivers/char/vt.c-232-		/*
+drivers/char/vt.c-233-		 * Attention Key.
+drivers/char/vt.c-234-		 */
+drivers/char/vt.c-235-		if (((ov == K_SAK) || (v == K_SAK)) && !capable(CAP_SYS_ADMIN))
+drivers/char/vt.c:236:			return -EPERM;
+drivers/char/vt.c-237-		key_map[i] = U(v);
+drivers/char/vt.c-238-		if (!s && (KTYP(ov) == KT_SHIFT || KTYP(v) == KT_SHIFT))
+drivers/char/vt.c-239-			compute_shiftstate();
+drivers/char/vt.c-240-		break;
+drivers/char/vt.c-241-	}
+drivers/char/vt.c-242-	return 0;
+drivers/char/vt.c-243-}
+drivers/char/vt.c-244-#undef i
+--
+drivers/char/vt.c-256-	switch (cmd) {
+drivers/char/vt.c-257-	case KDGETKEYCODE:
+drivers/char/vt.c-258-		kc = getkeycode(tmp.scancode);
+drivers/char/vt.c-259-		if (kc >= 0)
+drivers/char/vt.c-260-			kc = put_user(kc, &user_kbkc->keycode);
+drivers/char/vt.c-261-		break;
+drivers/char/vt.c-262-	case KDSETKEYCODE:
+drivers/char/vt.c-263-		if (!perm)
+drivers/char/vt.c:264:			return -EPERM;
+drivers/char/vt.c-265-		kc = setkeycode(tmp.scancode, tmp.keycode);
+drivers/char/vt.c-266-		break;
+drivers/char/vt.c-267-	}
+drivers/char/vt.c-268-	return kc;
+drivers/char/vt.c-269-}
+drivers/char/vt.c-270-
+drivers/char/vt.c-271-static inline int
+drivers/char/vt.c-272-do_kdgkb_ioctl(int cmd, struct kbsentry *user_kdgkb, int perm)
+--
+drivers/char/vt.c-300-			for ( ; *p && sz; p++, sz--)
+drivers/char/vt.c-301-				if (put_user(*p, q++))
+drivers/char/vt.c-302-					return -EFAULT;
+drivers/char/vt.c-303-		if (put_user('\0', q))
+drivers/char/vt.c-304-			return -EFAULT;
+drivers/char/vt.c-305-		return ((p && *p) ? -EOVERFLOW : 0);
+drivers/char/vt.c-306-	case KDSKBSENT:
+drivers/char/vt.c-307-		if (!perm)
+drivers/char/vt.c:308:			return -EPERM;
+drivers/char/vt.c-309-
+drivers/char/vt.c-310-		q = func_table[i];
+drivers/char/vt.c-311-		first_free = funcbufptr + (funcbufsize - funcbufleft);
+drivers/char/vt.c-312-		for (j = i+1; j < MAX_NR_FUNC && !func_table[j]; j++) 
+drivers/char/vt.c-313-			;
+drivers/char/vt.c-314-		if (j < MAX_NR_FUNC)
+drivers/char/vt.c-315-			fj = func_table[j];
+drivers/char/vt.c-316-		else
+--
+drivers/char/vt.c-369-	int i;
+drivers/char/vt.c-370-
+drivers/char/vt.c-371-	if (copy_from_user(&cfdarg, user_cfd, sizeof(struct consolefontdesc))) 
+drivers/char/vt.c-372-		return -EFAULT;
+drivers/char/vt.c-373- 	
+drivers/char/vt.c-374-	switch (cmd) {
+drivers/char/vt.c-375-	case PIO_FONTX:
+drivers/char/vt.c-376-		if (!perm)
+drivers/char/vt.c:377:			return -EPERM;
+drivers/char/vt.c-378-		op.op = KD_FONT_OP_SET;
+drivers/char/vt.c-379-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c-380-		op.width = 8;
+drivers/char/vt.c-381-		op.height = cfdarg.charheight;
+drivers/char/vt.c-382-		op.charcount = cfdarg.charcount;
+drivers/char/vt.c-383-		op.data = cfdarg.chardata;
+drivers/char/vt.c:384:		return con_font_op(fg_console, &op);
+drivers/char/vt.c-385-	case GIO_FONTX: {
+drivers/char/vt.c:386:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c-387-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c-388-		op.width = 8;
+drivers/char/vt.c-389-		op.height = cfdarg.charheight;
+drivers/char/vt.c-390-		op.charcount = cfdarg.charcount;
+drivers/char/vt.c-391-		op.data = cfdarg.chardata;
+drivers/char/vt.c:392:		i = con_font_op(fg_console, &op);
+drivers/char/vt.c-393-		if (i)
+drivers/char/vt.c-394-			return i;
+drivers/char/vt.c-395-		cfdarg.charheight = op.height;
+drivers/char/vt.c-396-		cfdarg.charcount = op.charcount;
+drivers/char/vt.c-397-		if (copy_to_user(user_cfd, &cfdarg, sizeof(struct consolefontdesc)))
+drivers/char/vt.c-398-			return -EFAULT;
+drivers/char/vt.c-399-		return 0;
+drivers/char/vt.c-400-		}
+--
+drivers/char/vt.c-413-	if (tmp.entries) {
+drivers/char/vt.c-414-		i = verify_area(VERIFY_WRITE, tmp.entries, 
+drivers/char/vt.c-415-						tmp.entry_ct*sizeof(struct unipair));
+drivers/char/vt.c-416-		if (i) return i;
+drivers/char/vt.c-417-	}
+drivers/char/vt.c-418-	switch (cmd) {
+drivers/char/vt.c-419-	case PIO_UNIMAP:
+drivers/char/vt.c-420-		if (!perm)
+drivers/char/vt.c:421:			return -EPERM;
+drivers/char/vt.c-422-		return con_set_unimap(fg_console, tmp.entry_ct, tmp.entries);
+drivers/char/vt.c-423-	case GIO_UNIMAP:
+drivers/char/vt.c-424-		return con_get_unimap(fg_console, tmp.entry_ct, &(user_ud->entry_ct), tmp.entries);
+drivers/char/vt.c-425-	}
+drivers/char/vt.c-426-	return 0;
+drivers/char/vt.c-427-}
+drivers/char/vt.c-428-
+drivers/char/vt.c-429-/*
+--
+drivers/char/vt.c-451-	perm = 0;
+drivers/char/vt.c-452-	if (current->tty == tty || suser())
+drivers/char/vt.c-453-		perm = 1;
+drivers/char/vt.c-454- 
+drivers/char/vt.c-455-	kbd = kbd_table + console;
+drivers/char/vt.c-456-	switch (cmd) {
+drivers/char/vt.c-457-	case KIOCSOUND:
+drivers/char/vt.c-458-		if (!perm)
+drivers/char/vt.c:459:			return -EPERM;
+drivers/char/vt.c-460-		if (arg)
+drivers/char/vt.c-461-			arg = 1193180 / arg;
+drivers/char/vt.c-462-		kd_mksound(arg, 0);
+drivers/char/vt.c-463-		return 0;
+drivers/char/vt.c-464-
+drivers/char/vt.c-465-	case KDMKTONE:
+drivers/char/vt.c-466-		if (!perm)
+drivers/char/vt.c:467:			return -EPERM;
+drivers/char/vt.c-468-	{
+drivers/char/vt.c-469-		unsigned int ticks, count;
+drivers/char/vt.c-470-		
+drivers/char/vt.c-471-		/*
+drivers/char/vt.c-472-		 * Generate the tone for the appropriate number of ticks.
+drivers/char/vt.c-473-		 * If the time is zero, turn off sound ourselves.
+drivers/char/vt.c-474-		 */
+drivers/char/vt.c-475-		ticks = HZ * ((arg >> 16) & 0xffff) / 1000;
+--
+drivers/char/vt.c-510-
+drivers/char/vt.c-511-	/* Linux m68k/i386 interface for setting the keyboard delay/repeat rate */
+drivers/char/vt.c-512-		
+drivers/char/vt.c-513-	case KDKBDREP:
+drivers/char/vt.c-514-	{
+drivers/char/vt.c-515-		struct kbd_repeat kbrep;
+drivers/char/vt.c-516-		
+drivers/char/vt.c-517-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/vt.c:518:			return -EPERM;
+drivers/char/vt.c-519-
+drivers/char/vt.c-520-		if (copy_from_user(&kbrep, (void *)arg,
+drivers/char/vt.c-521-				   sizeof(struct kbd_repeat)))
+drivers/char/vt.c-522-			return -EFAULT;
+drivers/char/vt.c-523-		if ((i = kbd_rate( &kbrep )))
+drivers/char/vt.c-524-			return i;
+drivers/char/vt.c-525-		if (copy_to_user((void *)arg, &kbrep,
+drivers/char/vt.c-526-				 sizeof(struct kbd_repeat)))
+--
+drivers/char/vt.c-529-	}
+drivers/char/vt.c-530-
+drivers/char/vt.c-531-	case KDSETMODE:
+drivers/char/vt.c-532-		/*
+drivers/char/vt.c-533-		 * currently, setting the mode from KD_TEXT to KD_GRAPHICS
+drivers/char/vt.c-534-		 * doesn't do a whole lot. i'm not sure if it should do any
+drivers/char/vt.c-535-		 * restoration of modes or what...
+drivers/char/vt.c-536-		 */
+drivers/char/vt.c:537:			return -EPERM;
+drivers/char/vt.c-538-		switch (arg) {
+drivers/char/vt.c-539-		case KD_GRAPHICS:
+drivers/char/vt.c-540-			break;
+drivers/char/vt.c-541-		case KD_TEXT0:
+drivers/char/vt.c-542-		case KD_TEXT1:
+drivers/char/vt.c-543-			arg = KD_TEXT;
+drivers/char/vt.c-544-		case KD_TEXT:
+drivers/char/vt.c-545-			break;
+--
+drivers/char/vt.c-569-		/*
+drivers/char/vt.c-570-		 * these work like a combination of mmap and KDENABIO.
+drivers/char/vt.c-571-		 * this could be easily finished.
+drivers/char/vt.c-572-		 */
+drivers/char/vt.c-573-		return -EINVAL;
+drivers/char/vt.c-574-
+drivers/char/vt.c-575-	case KDSKBMODE:
+drivers/char/vt.c-576-		if (!perm)
+drivers/char/vt.c:577:			return -EPERM;
+drivers/char/vt.c-578-		switch(arg) {
+drivers/char/vt.c-579-		  case K_RAW:
+drivers/char/vt.c-580-			kbd->kbdmode = VC_RAW;
+drivers/char/vt.c-581-			break;
+drivers/char/vt.c-582-		  case K_MEDIUMRAW:
+drivers/char/vt.c-583-			kbd->kbdmode = VC_MEDIUMRAW;
+drivers/char/vt.c-584-			break;
+drivers/char/vt.c-585-		  case K_XLATE:
+--
+drivers/char/vt.c-649-	}
+drivers/char/vt.c-650-
+drivers/char/vt.c-651-	case KDSKBDIACR:
+drivers/char/vt.c-652-	{
+drivers/char/vt.c-653-		struct kbdiacrs *a = (struct kbdiacrs *)arg;
+drivers/char/vt.c-654-		unsigned int ct;
+drivers/char/vt.c-655-
+drivers/char/vt.c-656-		if (!perm)
+drivers/char/vt.c:657:			return -EPERM;
+drivers/char/vt.c-658-		if (get_user(ct,&a->kb_cnt))
+drivers/char/vt.c-659-			return -EFAULT;
+drivers/char/vt.c-660-		if (ct >= MAX_DIACR)
+drivers/char/vt.c-661-			return -EINVAL;
+drivers/char/vt.c-662-		accent_table_size = ct;
+drivers/char/vt.c-663-		if (copy_from_user(accent_table, a->kbdiacr, ct*sizeof(struct kbdiacr)))
+drivers/char/vt.c-664-			return -EFAULT;
+drivers/char/vt.c-665-		return 0;
+--
+drivers/char/vt.c-668-	/* the ioctls below read/set the flags usually shown in the leds */
+drivers/char/vt.c-669-	/* don't use them - they will go away without warning */
+drivers/char/vt.c-670-	case KDGKBLED:
+drivers/char/vt.c-671-		ucval = kbd->ledflagstate | (kbd->default_ledflagstate << 4);
+drivers/char/vt.c-672-		goto setchar;
+drivers/char/vt.c-673-
+drivers/char/vt.c-674-	case KDSKBLED:
+drivers/char/vt.c-675-		if (!perm)
+drivers/char/vt.c:676:			return -EPERM;
+drivers/char/vt.c-677-		if (arg & ~0x77)
+drivers/char/vt.c-678-			return -EINVAL;
+drivers/char/vt.c-679-		kbd->ledflagstate = (arg & 7);
+drivers/char/vt.c-680-		kbd->default_ledflagstate = ((arg >> 4) & 7);
+drivers/char/vt.c-681-		set_leds();
+drivers/char/vt.c-682-		return 0;
+drivers/char/vt.c-683-
+drivers/char/vt.c-684-	/* the ioctls below only set the lights, not the functions */
+drivers/char/vt.c-685-	/* for those, see KDGKBLED and KDSKBLED above */
+drivers/char/vt.c-686-	case KDGETLED:
+drivers/char/vt.c-687-		ucval = getledstate();
+drivers/char/vt.c-688-	setchar:
+drivers/char/vt.c-689-		return put_user(ucval, (char*)arg);
+drivers/char/vt.c-690-
+drivers/char/vt.c-691-	case KDSETLED:
+drivers/char/vt.c-692-		if (!perm)
+drivers/char/vt.c:693:		  return -EPERM;
+drivers/char/vt.c-694-		setledstate(kbd, arg);
+drivers/char/vt.c-695-		return 0;
+drivers/char/vt.c-696-
+drivers/char/vt.c-697-	/*
+drivers/char/vt.c-698-	 * A process can indicate its willingness to accept signals
+drivers/char/vt.c-699-	 * generated by pressing an appropriate key combination.
+drivers/char/vt.c-700-	 * Thus, one can have a daemon that e.g. spawns a new console
+drivers/char/vt.c-701-	 * upon a keypress and then changes to it.
+--
+drivers/char/vt.c-703-	 * field ks (`keyboard signal') in inittab describing the
+drivers/char/vt.c-704-	 * desired action), so that the number of background daemons
+drivers/char/vt.c-705-	 * does not increase.
+drivers/char/vt.c-706-	 */
+drivers/char/vt.c-707-	case KDSIGACCEPT:
+drivers/char/vt.c-708-	{
+drivers/char/vt.c-709-		extern int spawnpid, spawnsig;
+drivers/char/vt.c-710-		if (!perm || !capable(CAP_KILL))
+drivers/char/vt.c:711:		  return -EPERM;
+drivers/char/vt.c-712-		if (arg < 1 || arg > _NSIG || arg == SIGKILL)
+drivers/char/vt.c-713-		  return -EINVAL;
+drivers/char/vt.c-714-		spawnpid = current->pid;
+drivers/char/vt.c-715-		spawnsig = arg;
+drivers/char/vt.c-716-		return 0;
+drivers/char/vt.c-717-	}
+drivers/char/vt.c-718-
+drivers/char/vt.c-719-	case VT_SETMODE:
+drivers/char/vt.c-720-	{
+drivers/char/vt.c-721-		struct vt_mode tmp;
+drivers/char/vt.c-722-
+drivers/char/vt.c-723-		if (!perm)
+drivers/char/vt.c:724:			return -EPERM;
+drivers/char/vt.c-725-		if (copy_from_user(&tmp, (void*)arg, sizeof(struct vt_mode)))
+drivers/char/vt.c-726-			return -EFAULT;
+drivers/char/vt.c-727-		if (tmp.mode != VT_AUTO && tmp.mode != VT_PROCESS)
+drivers/char/vt.c-728-			return -EINVAL;
+drivers/char/vt.c-729-		vt_cons[console]->vt_mode = tmp;
+drivers/char/vt.c-730-		/* the frsig is ignored, so we set it to 0 */
+drivers/char/vt.c-731-		vt_cons[console]->vt_mode.frsig = 0;
+drivers/char/vt.c-732-		vt_cons[console]->vt_pid = current->pid;
+--
+drivers/char/vt.c-770-
+drivers/char/vt.c-771-	/*
+drivers/char/vt.c-772-	 * ioctl(fd, VT_ACTIVATE, num) will cause us to switch to vt # num,
+drivers/char/vt.c-773-	 * with num >= 1 (switches to vt 0, our console, are not allowed, just
+drivers/char/vt.c-774-	 * to preserve sanity).
+drivers/char/vt.c-775-	 */
+drivers/char/vt.c-776-	case VT_ACTIVATE:
+drivers/char/vt.c-777-		if (!perm)
+drivers/char/vt.c:778:			return -EPERM;
+drivers/char/vt.c-779-		if (arg == 0 || arg > MAX_NR_CONSOLES)
+drivers/char/vt.c-780-			return -ENXIO;
+drivers/char/vt.c-781-		arg--;
+drivers/char/vt.c-782-		i = vc_allocate(arg);
+drivers/char/vt.c-783-		if (i)
+drivers/char/vt.c-784-			return i;
+drivers/char/vt.c-785-		set_console(arg);
+drivers/char/vt.c-786-		return 0;
+drivers/char/vt.c-787-
+drivers/char/vt.c-788-	/*
+drivers/char/vt.c-789-	 * wait until the specified VT has been activated
+drivers/char/vt.c-790-	 */
+drivers/char/vt.c-791-	case VT_WAITACTIVE:
+drivers/char/vt.c-792-		if (!perm)
+drivers/char/vt.c:793:			return -EPERM;
+drivers/char/vt.c-794-		if (arg == 0 || arg > MAX_NR_CONSOLES)
+drivers/char/vt.c-795-			return -ENXIO;
+drivers/char/vt.c-796-		return vt_waitactive(arg-1);
+drivers/char/vt.c-797-
+drivers/char/vt.c-798-	/*
+drivers/char/vt.c-799-	 * If a vt is under process control, the kernel will not switch to it
+drivers/char/vt.c-800-	 * immediately, but postpone the operation until the process calls this
+drivers/char/vt.c-801-	 * ioctl, allowing the switch to complete.
+drivers/char/vt.c-802-	 *
+drivers/char/vt.c-803-	 * According to the X sources this is the behavior:
+drivers/char/vt.c-804-	 *	0:	pending switch-from not OK
+drivers/char/vt.c-805-	 *	1:	pending switch-from OK
+drivers/char/vt.c-806-	 *	2:	completed switch-to OK
+drivers/char/vt.c-807-	 */
+drivers/char/vt.c-808-	case VT_RELDISP:
+drivers/char/vt.c-809-		if (!perm)
+drivers/char/vt.c:810:			return -EPERM;
+drivers/char/vt.c-811-		if (vt_cons[console]->vt_mode.mode != VT_PROCESS)
+drivers/char/vt.c-812-			return -EINVAL;
+drivers/char/vt.c-813-
+drivers/char/vt.c-814-		/*
+drivers/char/vt.c-815-		 * Switching-from response
+drivers/char/vt.c-816-		 */
+drivers/char/vt.c-817-		if (vt_cons[console]->vt_newvt >= 0)
+drivers/char/vt.c-818-		{
+--
+drivers/char/vt.c-880-		}
+drivers/char/vt.c-881-		return 0;
+drivers/char/vt.c-882-
+drivers/char/vt.c-883-	case VT_RESIZE:
+drivers/char/vt.c-884-	{
+drivers/char/vt.c-885-		struct vt_sizes *vtsizes = (struct vt_sizes *) arg;
+drivers/char/vt.c-886-		ushort ll,cc;
+drivers/char/vt.c-887-		if (!perm)
+drivers/char/vt.c:888:			return -EPERM;
+drivers/char/vt.c-889-		if (get_user(ll, &vtsizes->v_rows) ||
+drivers/char/vt.c-890-		    get_user(cc, &vtsizes->v_cols))
+drivers/char/vt.c-891-			return -EFAULT;
+drivers/char/vt.c-892-		return vc_resize_all(ll, cc);
+drivers/char/vt.c-893-	}
+drivers/char/vt.c-894-
+drivers/char/vt.c-895-	case VT_RESIZEX:
+drivers/char/vt.c-896-	{
+drivers/char/vt.c-897-		struct vt_consize *vtconsize = (struct vt_consize *) arg;
+drivers/char/vt.c-898-		ushort ll,cc,vlin,clin,vcol,ccol;
+drivers/char/vt.c-899-		if (!perm)
+drivers/char/vt.c:900:			return -EPERM;
+drivers/char/vt.c-901-		if (verify_area(VERIFY_READ, (void *)vtconsize,
+drivers/char/vt.c-902-				sizeof(struct vt_consize)))
+drivers/char/vt.c-903-			return -EFAULT;
+drivers/char/vt.c-904-		__get_user(ll, &vtconsize->v_rows);
+drivers/char/vt.c-905-		__get_user(cc, &vtconsize->v_cols);
+drivers/char/vt.c-906-		__get_user(vlin, &vtconsize->v_vlin);
+drivers/char/vt.c-907-		__get_user(clin, &vtconsize->v_clin);
+drivers/char/vt.c-908-		__get_user(vcol, &vtconsize->v_vcol);
+--
+drivers/char/vt.c-938-		  video_font_height = clin;
+drivers/char/vt.c-939-		
+drivers/char/vt.c-940-		return vc_resize_all(ll, cc);
+drivers/char/vt.c-941-  	}
+drivers/char/vt.c-942-
+drivers/char/vt.c-943-	case PIO_FONT: {
+drivers/char/vt.c-944-		struct console_font_op op;
+drivers/char/vt.c-945-		if (!perm)
+drivers/char/vt.c:946:			return -EPERM;
+drivers/char/vt.c-947-		op.op = KD_FONT_OP_SET;
+drivers/char/vt.c-948-		op.flags = KD_FONT_FLAG_OLD | KD_FONT_FLAG_DONT_RECALC;	/* Compatibility */
+drivers/char/vt.c-949-		op.width = 8;
+drivers/char/vt.c-950-		op.height = 0;
+drivers/char/vt.c-951-		op.charcount = 256;
+drivers/char/vt.c-952-		op.data = (char *) arg;
+drivers/char/vt.c:953:		return con_font_op(fg_console, &op);
+drivers/char/vt.c-954-	}
+drivers/char/vt.c-955-
+drivers/char/vt.c-956-	case GIO_FONT: {
+drivers/char/vt.c-957-		struct console_font_op op;
+drivers/char/vt.c:958:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c-959-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c-960-		op.width = 8;
+drivers/char/vt.c-961-		op.height = 32;
+drivers/char/vt.c-962-		op.charcount = 256;
+drivers/char/vt.c-963-		op.data = (char *) arg;
+drivers/char/vt.c:964:		return con_font_op(fg_console, &op);
+drivers/char/vt.c-965-	}
+drivers/char/vt.c-966-
+drivers/char/vt.c-967-	case PIO_CMAP:
+drivers/char/vt.c-968-                if (!perm)
+drivers/char/vt.c:969:			return -EPERM;
+drivers/char/vt.c-970-                return con_set_cmap((char *)arg);
+drivers/char/vt.c-971-
+drivers/char/vt.c-972-	case GIO_CMAP:
+drivers/char/vt.c-973-                return con_get_cmap((char *)arg);
+drivers/char/vt.c-974-
+drivers/char/vt.c-975-	case PIO_FONTX:
+drivers/char/vt.c-976-	case GIO_FONTX:
+drivers/char/vt.c-977-		return do_fontx_ioctl(cmd, (struct consolefontdesc *)arg, perm);
+drivers/char/vt.c-978-
+drivers/char/vt.c-979-	case PIO_FONTRESET:
+drivers/char/vt.c-980-	{
+drivers/char/vt.c-981-		if (!perm)
+drivers/char/vt.c:982:			return -EPERM;
+drivers/char/vt.c-983-
+drivers/char/vt.c-984-#ifdef BROKEN_GRAPHICS_PROGRAMS
+drivers/char/vt.c-985-		/* With BROKEN_GRAPHICS_PROGRAMS defined, the default
+drivers/char/vt.c-986-		   font is not saved. */
+drivers/char/vt.c-987-		return -ENOSYS;
+drivers/char/vt.c-988-#else
+drivers/char/vt.c-989-		{
+drivers/char/vt.c-990-		struct console_font_op op;
+drivers/char/vt.c-991-		op.op = KD_FONT_OP_SET_DEFAULT;
+drivers/char/vt.c-992-		op.data = NULL;
+drivers/char/vt.c:993:		i = con_font_op(fg_console, &op);
+drivers/char/vt.c-994-		if (i) return i;
+drivers/char/vt.c-995-		con_set_default_unimap(fg_console);
+drivers/char/vt.c-996-		return 0;
+drivers/char/vt.c-997-		}
+drivers/char/vt.c-998-#endif
+drivers/char/vt.c-999-	}
+drivers/char/vt.c-1000-
+drivers/char/vt.c-1001-	case KDFONTOP: {
+drivers/char/vt.c-1002-		struct console_font_op op;
+drivers/char/vt.c-1003-		if (copy_from_user(&op, (void *) arg, sizeof(op)))
+drivers/char/vt.c-1004-			return -EFAULT;
+drivers/char/vt.c:1005:			return -EPERM;
+drivers/char/vt.c:1006:		i = con_font_op(console, &op);
+drivers/char/vt.c-1007-		if (i) return i;
+drivers/char/vt.c-1008-		if (copy_to_user((void *) arg, &op, sizeof(op)))
+drivers/char/vt.c-1009-			return -EFAULT;
+drivers/char/vt.c-1010-		return 0;
+drivers/char/vt.c-1011-	}
+drivers/char/vt.c-1012-
+drivers/char/vt.c-1013-	case PIO_SCRNMAP:
+drivers/char/vt.c-1014-		if (!perm)
+drivers/char/vt.c:1015:			return -EPERM;
+drivers/char/vt.c-1016-		return con_set_trans_old((unsigned char *)arg);
+drivers/char/vt.c-1017-
+drivers/char/vt.c-1018-	case GIO_SCRNMAP:
+drivers/char/vt.c-1019-		return con_get_trans_old((unsigned char *)arg);
+drivers/char/vt.c-1020-
+drivers/char/vt.c-1021-	case PIO_UNISCRNMAP:
+drivers/char/vt.c-1022-		if (!perm)
+drivers/char/vt.c:1023:			return -EPERM;
+drivers/char/vt.c-1024-		return con_set_trans_new((unsigned short *)arg);
+drivers/char/vt.c-1025-
+drivers/char/vt.c-1026-	case GIO_UNISCRNMAP:
+drivers/char/vt.c-1027-		return con_get_trans_new((unsigned short *)arg);
+drivers/char/vt.c-1028-
+drivers/char/vt.c-1029-	case PIO_UNIMAPCLR:
+drivers/char/vt.c-1030-	      { struct unimapinit ui;
+drivers/char/vt.c-1031-		if (!perm)
+drivers/char/vt.c:1032:			return -EPERM;
+drivers/char/vt.c-1033-		i = copy_from_user(&ui, (void *)arg, sizeof(struct unimapinit));
+drivers/char/vt.c-1034-		if (i) return -EFAULT;
+drivers/char/vt.c-1035-		con_clear_unimap(fg_console, &ui);
+drivers/char/vt.c-1036-		return 0;
+drivers/char/vt.c-1037-	      }
+drivers/char/vt.c-1038-
+drivers/char/vt.c-1039-	case PIO_UNIMAP:
+drivers/char/vt.c-1040-	case GIO_UNIMAP:
+drivers/char/vt.c-1041-		return do_unimap_ioctl(cmd, (struct unimapdesc *)arg, perm);
+drivers/char/vt.c-1042-
+drivers/char/vt.c-1043-	case VT_LOCKSWITCH:
+drivers/char/vt.c-1044-		if (!suser())
+drivers/char/vt.c:1045:		   return -EPERM;
+drivers/char/vt.c-1046-		vt_dont_switch = 1;
+drivers/char/vt.c-1047-		return 0;
+drivers/char/vt.c-1048-	case VT_UNLOCKSWITCH:
+drivers/char/vt.c-1049-		if (!suser())
+drivers/char/vt.c:1050:		   return -EPERM;
+drivers/char/vt.c-1051-		vt_dont_switch = 0;
+drivers/char/vt.c-1052-		return 0;
+drivers/char/vt.c-1053-#ifdef CONFIG_FB_COMPAT_XPMAC
+drivers/char/vt.c-1054-	case VC_GETMODE:
+drivers/char/vt.c-1055-		{
+drivers/char/vt.c-1056-			struct vc_mode mode;
+drivers/char/vt.c-1057-
+drivers/char/vt.c-1058-			i = verify_area(VERIFY_WRITE, (void *) arg,
+--
+drivers/char/vt.c-1066-			return 0;
+drivers/char/vt.c-1067-		}
+drivers/char/vt.c-1068-	case VC_SETMODE:
+drivers/char/vt.c-1069-	case VC_INQMODE:
+drivers/char/vt.c-1070-		{
+drivers/char/vt.c-1071-			struct vc_mode mode;
+drivers/char/vt.c-1072-
+drivers/char/vt.c-1073-			if (!perm)
+drivers/char/vt.c:1074:				return -EPERM;
+drivers/char/vt.c-1075-			if (copy_from_user(&mode, (void *) arg, sizeof(mode)))
+drivers/char/vt.c-1076-				return -EFAULT;
+drivers/char/vt.c-1077-			return console_setmode(&mode, cmd == VC_SETMODE);
+drivers/char/vt.c-1078-		}
+drivers/char/vt.c-1079-	case VC_SETCMAP:
+drivers/char/vt.c-1080-		{
+drivers/char/vt.c-1081-			unsigned char cmap[3][256], *p;
+drivers/char/vt.c-1082-			int n_entries, cmap_size, i, j;
+drivers/char/vt.c-1083-
+drivers/char/vt.c-1084-			if (!perm)
+drivers/char/vt.c:1085:				return -EPERM;
+drivers/char/vt.c-1086-			if (arg == (unsigned long) VC_POWERMODE_INQUIRY
+drivers/char/vt.c-1087-			    || arg <= VESA_POWERDOWN) {
+drivers/char/vt.c-1088-				/* compatibility hack: VC_POWERMODE
+drivers/char/vt.c-1089-				   was changed from 0x766a to 0x766c */
+drivers/char/vt.c-1090-				return console_powermode((int) arg);
+drivers/char/vt.c-1091-			}
+drivers/char/vt.c-1092-			if (get_user(cmap_size, (int *) arg))
+drivers/char/vt.c-1093-				return -EFAULT;
+--
+drivers/char/vt.c-1104-			return console_setcmap(n_entries, cmap[0],
+drivers/char/vt.c-1105-					       cmap[1], cmap[2]);
+drivers/char/vt.c-1106-		}
+drivers/char/vt.c-1107-	case VC_GETCMAP:
+drivers/char/vt.c-1108-		/* not implemented yet */
+drivers/char/vt.c-1109-		return -ENOIOCTLCMD;
+drivers/char/vt.c-1110-	case VC_POWERMODE:
+drivers/char/vt.c-1111-		if (!perm)
+drivers/char/vt.c:1112:			return -EPERM;
+drivers/char/vt.c-1113-		return console_powermode((int) arg);
+drivers/char/vt.c-1114-#endif /* CONFIG_FB_COMPAT_XPMAC */
+drivers/char/vt.c-1115-	default:
+drivers/char/vt.c-1116-		return -ENOIOCTLCMD;
+drivers/char/vt.c-1117-	}
+drivers/char/vt.c-1118-}
+drivers/char/vt.c-1119-
+drivers/char/vt.c-1120-/*
+--
+drivers/char/vt.c.lvgd486.orig-176-		    val = U(key_map[i]);
+drivers/char/vt.c.lvgd486.orig-177-		    if (kbd->kbdmode != VC_UNICODE && KTYP(val) >= NR_TYPES)
+drivers/char/vt.c.lvgd486.orig-178-			val = K_HOLE;
+drivers/char/vt.c.lvgd486.orig-179-		} else
+drivers/char/vt.c.lvgd486.orig-180-		    val = (i ? K_HOLE : K_NOSUCHMAP);
+drivers/char/vt.c.lvgd486.orig-181-		return put_user(val, &user_kbe->kb_value);
+drivers/char/vt.c.lvgd486.orig-182-	case KDSKBENT:
+drivers/char/vt.c.lvgd486.orig-183-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:184:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-185-		if (!i && v == K_NOSUCHMAP) {
+drivers/char/vt.c.lvgd486.orig-186-			/* disallocate map */
+drivers/char/vt.c.lvgd486.orig-187-			key_map = key_maps[s];
+drivers/char/vt.c.lvgd486.orig-188-			if (s && key_map) {
+drivers/char/vt.c.lvgd486.orig-189-			    key_maps[s] = 0;
+drivers/char/vt.c.lvgd486.orig-190-			    if (key_map[0] == U(K_ALLOCATED)) {
+drivers/char/vt.c.lvgd486.orig-191-					kfree(key_map);
+drivers/char/vt.c.lvgd486.orig-192-					keymap_count--;
+--
+drivers/char/vt.c.lvgd486.orig-209-			break;
+drivers/char/vt.c.lvgd486.orig-210-#endif
+drivers/char/vt.c.lvgd486.orig-211-
+drivers/char/vt.c.lvgd486.orig-212-		if (!(key_map = key_maps[s])) {
+drivers/char/vt.c.lvgd486.orig-213-			int j;
+drivers/char/vt.c.lvgd486.orig-214-
+drivers/char/vt.c.lvgd486.orig-215-			if (keymap_count >= MAX_NR_OF_USER_KEYMAPS &&
+drivers/char/vt.c.lvgd486.orig-216-			    !capable(CAP_SYS_RESOURCE))
+drivers/char/vt.c.lvgd486.orig:217:				return -EPERM;
+drivers/char/vt.c.lvgd486.orig-218-
+drivers/char/vt.c.lvgd486.orig-219-			key_map = (ushort *) kmalloc(sizeof(plain_map),
+drivers/char/vt.c.lvgd486.orig-220-						     GFP_KERNEL);
+drivers/char/vt.c.lvgd486.orig-221-			if (!key_map)
+drivers/char/vt.c.lvgd486.orig-222-				return -ENOMEM;
+drivers/char/vt.c.lvgd486.orig-223-			key_maps[s] = key_map;
+drivers/char/vt.c.lvgd486.orig-224-			key_map[0] = U(K_ALLOCATED);
+drivers/char/vt.c.lvgd486.orig-225-			for (j = 1; j < NR_KEYS; j++)
+--
+drivers/char/vt.c.lvgd486.orig-228-		}
+drivers/char/vt.c.lvgd486.orig-229-		ov = U(key_map[i]);
+drivers/char/vt.c.lvgd486.orig-230-		if (v == ov)
+drivers/char/vt.c.lvgd486.orig-231-			break;	/* nothing to do */
+drivers/char/vt.c.lvgd486.orig-232-		/*
+drivers/char/vt.c.lvgd486.orig-233-		 * Attention Key.
+drivers/char/vt.c.lvgd486.orig-234-		 */
+drivers/char/vt.c.lvgd486.orig-235-		if (((ov == K_SAK) || (v == K_SAK)) && !capable(CAP_SYS_ADMIN))
+drivers/char/vt.c.lvgd486.orig:236:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-237-		key_map[i] = U(v);
+drivers/char/vt.c.lvgd486.orig-238-		if (!s && (KTYP(ov) == KT_SHIFT || KTYP(v) == KT_SHIFT))
+drivers/char/vt.c.lvgd486.orig-239-			compute_shiftstate();
+drivers/char/vt.c.lvgd486.orig-240-		break;
+drivers/char/vt.c.lvgd486.orig-241-	}
+drivers/char/vt.c.lvgd486.orig-242-	return 0;
+drivers/char/vt.c.lvgd486.orig-243-}
+drivers/char/vt.c.lvgd486.orig-244-#undef i
+--
+drivers/char/vt.c.lvgd486.orig-256-	switch (cmd) {
+drivers/char/vt.c.lvgd486.orig-257-	case KDGETKEYCODE:
+drivers/char/vt.c.lvgd486.orig-258-		kc = getkeycode(tmp.scancode);
+drivers/char/vt.c.lvgd486.orig-259-		if (kc >= 0)
+drivers/char/vt.c.lvgd486.orig-260-			kc = put_user(kc, &user_kbkc->keycode);
+drivers/char/vt.c.lvgd486.orig-261-		break;
+drivers/char/vt.c.lvgd486.orig-262-	case KDSETKEYCODE:
+drivers/char/vt.c.lvgd486.orig-263-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:264:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-265-		kc = setkeycode(tmp.scancode, tmp.keycode);
+drivers/char/vt.c.lvgd486.orig-266-		break;
+drivers/char/vt.c.lvgd486.orig-267-	}
+drivers/char/vt.c.lvgd486.orig-268-	return kc;
+drivers/char/vt.c.lvgd486.orig-269-}
+drivers/char/vt.c.lvgd486.orig-270-
+drivers/char/vt.c.lvgd486.orig-271-static inline int
+drivers/char/vt.c.lvgd486.orig-272-do_kdgkb_ioctl(int cmd, struct kbsentry *user_kdgkb, int perm)
+--
+drivers/char/vt.c.lvgd486.orig-300-			for ( ; *p && sz; p++, sz--)
+drivers/char/vt.c.lvgd486.orig-301-				if (put_user(*p, q++))
+drivers/char/vt.c.lvgd486.orig-302-					return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-303-		if (put_user('\0', q))
+drivers/char/vt.c.lvgd486.orig-304-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-305-		return ((p && *p) ? -EOVERFLOW : 0);
+drivers/char/vt.c.lvgd486.orig-306-	case KDSKBSENT:
+drivers/char/vt.c.lvgd486.orig-307-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:308:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-309-
+drivers/char/vt.c.lvgd486.orig-310-		q = func_table[i];
+drivers/char/vt.c.lvgd486.orig-311-		first_free = funcbufptr + (funcbufsize - funcbufleft);
+drivers/char/vt.c.lvgd486.orig-312-		for (j = i+1; j < MAX_NR_FUNC && !func_table[j]; j++) 
+drivers/char/vt.c.lvgd486.orig-313-			;
+drivers/char/vt.c.lvgd486.orig-314-		if (j < MAX_NR_FUNC)
+drivers/char/vt.c.lvgd486.orig-315-			fj = func_table[j];
+drivers/char/vt.c.lvgd486.orig-316-		else
+--
+drivers/char/vt.c.lvgd486.orig-369-	int i;
+drivers/char/vt.c.lvgd486.orig-370-
+drivers/char/vt.c.lvgd486.orig-371-	if (copy_from_user(&cfdarg, user_cfd, sizeof(struct consolefontdesc))) 
+drivers/char/vt.c.lvgd486.orig-372-		return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-373- 	
+drivers/char/vt.c.lvgd486.orig-374-	switch (cmd) {
+drivers/char/vt.c.lvgd486.orig-375-	case PIO_FONTX:
+drivers/char/vt.c.lvgd486.orig-376-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:377:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-378-		op.op = KD_FONT_OP_SET;
+drivers/char/vt.c.lvgd486.orig-379-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c.lvgd486.orig-380-		op.width = 8;
+drivers/char/vt.c.lvgd486.orig-381-		op.height = cfdarg.charheight;
+drivers/char/vt.c.lvgd486.orig-382-		op.charcount = cfdarg.charcount;
+drivers/char/vt.c.lvgd486.orig-383-		op.data = cfdarg.chardata;
+drivers/char/vt.c.lvgd486.orig:384:		return con_font_op(fg_console, &op);
+drivers/char/vt.c.lvgd486.orig-385-	case GIO_FONTX: {
+drivers/char/vt.c.lvgd486.orig:386:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c.lvgd486.orig-387-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c.lvgd486.orig-388-		op.width = 8;
+drivers/char/vt.c.lvgd486.orig-389-		op.height = cfdarg.charheight;
+drivers/char/vt.c.lvgd486.orig-390-		op.charcount = cfdarg.charcount;
+drivers/char/vt.c.lvgd486.orig-391-		op.data = cfdarg.chardata;
+drivers/char/vt.c.lvgd486.orig:392:		i = con_font_op(fg_console, &op);
+drivers/char/vt.c.lvgd486.orig-393-		if (i)
+drivers/char/vt.c.lvgd486.orig-394-			return i;
+drivers/char/vt.c.lvgd486.orig-395-		cfdarg.charheight = op.height;
+drivers/char/vt.c.lvgd486.orig-396-		cfdarg.charcount = op.charcount;
+drivers/char/vt.c.lvgd486.orig-397-		if (copy_to_user(user_cfd, &cfdarg, sizeof(struct consolefontdesc)))
+drivers/char/vt.c.lvgd486.orig-398-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-399-		return 0;
+drivers/char/vt.c.lvgd486.orig-400-		}
+--
+drivers/char/vt.c.lvgd486.orig-413-	if (tmp.entries) {
+drivers/char/vt.c.lvgd486.orig-414-		i = verify_area(VERIFY_WRITE, tmp.entries, 
+drivers/char/vt.c.lvgd486.orig-415-						tmp.entry_ct*sizeof(struct unipair));
+drivers/char/vt.c.lvgd486.orig-416-		if (i) return i;
+drivers/char/vt.c.lvgd486.orig-417-	}
+drivers/char/vt.c.lvgd486.orig-418-	switch (cmd) {
+drivers/char/vt.c.lvgd486.orig-419-	case PIO_UNIMAP:
+drivers/char/vt.c.lvgd486.orig-420-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:421:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-422-		return con_set_unimap(fg_console, tmp.entry_ct, tmp.entries);
+drivers/char/vt.c.lvgd486.orig-423-	case GIO_UNIMAP:
+drivers/char/vt.c.lvgd486.orig-424-		return con_get_unimap(fg_console, tmp.entry_ct, &(user_ud->entry_ct), tmp.entries);
+drivers/char/vt.c.lvgd486.orig-425-	}
+drivers/char/vt.c.lvgd486.orig-426-	return 0;
+drivers/char/vt.c.lvgd486.orig-427-}
+drivers/char/vt.c.lvgd486.orig-428-
+drivers/char/vt.c.lvgd486.orig-429-/*
+--
+drivers/char/vt.c.lvgd486.orig-451-	perm = 0;
+drivers/char/vt.c.lvgd486.orig-452-	if (current->tty == tty || suser())
+drivers/char/vt.c.lvgd486.orig-453-		perm = 1;
+drivers/char/vt.c.lvgd486.orig-454- 
+drivers/char/vt.c.lvgd486.orig-455-	kbd = kbd_table + console;
+drivers/char/vt.c.lvgd486.orig-456-	switch (cmd) {
+drivers/char/vt.c.lvgd486.orig-457-	case KIOCSOUND:
+drivers/char/vt.c.lvgd486.orig-458-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:459:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-460-		if (arg)
+drivers/char/vt.c.lvgd486.orig-461-			arg = 1193180 / arg;
+drivers/char/vt.c.lvgd486.orig-462-		kd_mksound(arg, 0);
+drivers/char/vt.c.lvgd486.orig-463-		return 0;
+drivers/char/vt.c.lvgd486.orig-464-
+drivers/char/vt.c.lvgd486.orig-465-	case KDMKTONE:
+drivers/char/vt.c.lvgd486.orig-466-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:467:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-468-	{
+drivers/char/vt.c.lvgd486.orig-469-		unsigned int ticks, count;
+drivers/char/vt.c.lvgd486.orig-470-		
+drivers/char/vt.c.lvgd486.orig-471-		/*
+drivers/char/vt.c.lvgd486.orig-472-		 * Generate the tone for the appropriate number of ticks.
+drivers/char/vt.c.lvgd486.orig-473-		 * If the time is zero, turn off sound ourselves.
+drivers/char/vt.c.lvgd486.orig-474-		 */
+drivers/char/vt.c.lvgd486.orig-475-		ticks = HZ * ((arg >> 16) & 0xffff) / 1000;
+--
+drivers/char/vt.c.lvgd486.orig-510-
+drivers/char/vt.c.lvgd486.orig-511-	/* Linux m68k/i386 interface for setting the keyboard delay/repeat rate */
+drivers/char/vt.c.lvgd486.orig-512-		
+drivers/char/vt.c.lvgd486.orig-513-	case KDKBDREP:
+drivers/char/vt.c.lvgd486.orig-514-	{
+drivers/char/vt.c.lvgd486.orig-515-		struct kbd_repeat kbrep;
+drivers/char/vt.c.lvgd486.orig-516-		
+drivers/char/vt.c.lvgd486.orig-517-		if (!capable(CAP_SYS_ADMIN))
+drivers/char/vt.c.lvgd486.orig:518:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-519-
+drivers/char/vt.c.lvgd486.orig-520-		if (copy_from_user(&kbrep, (void *)arg,
+drivers/char/vt.c.lvgd486.orig-521-				   sizeof(struct kbd_repeat)))
+drivers/char/vt.c.lvgd486.orig-522-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-523-		if ((i = kbd_rate( &kbrep )))
+drivers/char/vt.c.lvgd486.orig-524-			return i;
+drivers/char/vt.c.lvgd486.orig-525-		if (copy_to_user((void *)arg, &kbrep,
+drivers/char/vt.c.lvgd486.orig-526-				 sizeof(struct kbd_repeat)))
+--
+drivers/char/vt.c.lvgd486.orig-530-
+drivers/char/vt.c.lvgd486.orig-531-	case KDSETMODE:
+drivers/char/vt.c.lvgd486.orig-532-		/*
+drivers/char/vt.c.lvgd486.orig-533-		 * currently, setting the mode from KD_TEXT to KD_GRAPHICS
+drivers/char/vt.c.lvgd486.orig-534-		 * doesn't do a whole lot. i'm not sure if it should do any
+drivers/char/vt.c.lvgd486.orig-535-		 * restoration of modes or what...
+drivers/char/vt.c.lvgd486.orig-536-		 */
+drivers/char/vt.c.lvgd486.orig-537-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:538:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-539-		switch (arg) {
+drivers/char/vt.c.lvgd486.orig-540-		case KD_GRAPHICS:
+drivers/char/vt.c.lvgd486.orig-541-			break;
+drivers/char/vt.c.lvgd486.orig-542-		case KD_TEXT0:
+drivers/char/vt.c.lvgd486.orig-543-		case KD_TEXT1:
+drivers/char/vt.c.lvgd486.orig-544-			arg = KD_TEXT;
+drivers/char/vt.c.lvgd486.orig-545-		case KD_TEXT:
+drivers/char/vt.c.lvgd486.orig-546-			break;
+--
+drivers/char/vt.c.lvgd486.orig-570-		/*
+drivers/char/vt.c.lvgd486.orig-571-		 * these work like a combination of mmap and KDENABIO.
+drivers/char/vt.c.lvgd486.orig-572-		 * this could be easily finished.
+drivers/char/vt.c.lvgd486.orig-573-		 */
+drivers/char/vt.c.lvgd486.orig-574-		return -EINVAL;
+drivers/char/vt.c.lvgd486.orig-575-
+drivers/char/vt.c.lvgd486.orig-576-	case KDSKBMODE:
+drivers/char/vt.c.lvgd486.orig-577-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:578:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-579-		switch(arg) {
+drivers/char/vt.c.lvgd486.orig-580-		  case K_RAW:
+drivers/char/vt.c.lvgd486.orig-581-			kbd->kbdmode = VC_RAW;
+drivers/char/vt.c.lvgd486.orig-582-			break;
+drivers/char/vt.c.lvgd486.orig-583-		  case K_MEDIUMRAW:
+drivers/char/vt.c.lvgd486.orig-584-			kbd->kbdmode = VC_MEDIUMRAW;
+drivers/char/vt.c.lvgd486.orig-585-			break;
+drivers/char/vt.c.lvgd486.orig-586-		  case K_XLATE:
+--
+drivers/char/vt.c.lvgd486.orig-650-	}
+drivers/char/vt.c.lvgd486.orig-651-
+drivers/char/vt.c.lvgd486.orig-652-	case KDSKBDIACR:
+drivers/char/vt.c.lvgd486.orig-653-	{
+drivers/char/vt.c.lvgd486.orig-654-		struct kbdiacrs *a = (struct kbdiacrs *)arg;
+drivers/char/vt.c.lvgd486.orig-655-		unsigned int ct;
+drivers/char/vt.c.lvgd486.orig-656-
+drivers/char/vt.c.lvgd486.orig-657-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:658:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-659-		if (get_user(ct,&a->kb_cnt))
+drivers/char/vt.c.lvgd486.orig-660-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-661-		if (ct >= MAX_DIACR)
+drivers/char/vt.c.lvgd486.orig-662-			return -EINVAL;
+drivers/char/vt.c.lvgd486.orig-663-		accent_table_size = ct;
+drivers/char/vt.c.lvgd486.orig-664-		if (copy_from_user(accent_table, a->kbdiacr, ct*sizeof(struct kbdiacr)))
+drivers/char/vt.c.lvgd486.orig-665-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-666-		return 0;
+--
+drivers/char/vt.c.lvgd486.orig-669-	/* the ioctls below read/set the flags usually shown in the leds */
+drivers/char/vt.c.lvgd486.orig-670-	/* don't use them - they will go away without warning */
+drivers/char/vt.c.lvgd486.orig-671-	case KDGKBLED:
+drivers/char/vt.c.lvgd486.orig-672-		ucval = kbd->ledflagstate | (kbd->default_ledflagstate << 4);
+drivers/char/vt.c.lvgd486.orig-673-		goto setchar;
+drivers/char/vt.c.lvgd486.orig-674-
+drivers/char/vt.c.lvgd486.orig-675-	case KDSKBLED:
+drivers/char/vt.c.lvgd486.orig-676-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:677:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-678-		if (arg & ~0x77)
+drivers/char/vt.c.lvgd486.orig-679-			return -EINVAL;
+drivers/char/vt.c.lvgd486.orig-680-		kbd->ledflagstate = (arg & 7);
+drivers/char/vt.c.lvgd486.orig-681-		kbd->default_ledflagstate = ((arg >> 4) & 7);
+drivers/char/vt.c.lvgd486.orig-682-		set_leds();
+drivers/char/vt.c.lvgd486.orig-683-		return 0;
+drivers/char/vt.c.lvgd486.orig-684-
+drivers/char/vt.c.lvgd486.orig-685-	/* the ioctls below only set the lights, not the functions */
+drivers/char/vt.c.lvgd486.orig-686-	/* for those, see KDGKBLED and KDSKBLED above */
+drivers/char/vt.c.lvgd486.orig-687-	case KDGETLED:
+drivers/char/vt.c.lvgd486.orig-688-		ucval = getledstate();
+drivers/char/vt.c.lvgd486.orig-689-	setchar:
+drivers/char/vt.c.lvgd486.orig-690-		return put_user(ucval, (char*)arg);
+drivers/char/vt.c.lvgd486.orig-691-
+drivers/char/vt.c.lvgd486.orig-692-	case KDSETLED:
+drivers/char/vt.c.lvgd486.orig-693-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:694:		  return -EPERM;
+drivers/char/vt.c.lvgd486.orig-695-		setledstate(kbd, arg);
+drivers/char/vt.c.lvgd486.orig-696-		return 0;
+drivers/char/vt.c.lvgd486.orig-697-
+drivers/char/vt.c.lvgd486.orig-698-	/*
+drivers/char/vt.c.lvgd486.orig-699-	 * A process can indicate its willingness to accept signals
+drivers/char/vt.c.lvgd486.orig-700-	 * generated by pressing an appropriate key combination.
+drivers/char/vt.c.lvgd486.orig-701-	 * Thus, one can have a daemon that e.g. spawns a new console
+drivers/char/vt.c.lvgd486.orig-702-	 * upon a keypress and then changes to it.
+--
+drivers/char/vt.c.lvgd486.orig-704-	 * field ks (`keyboard signal') in inittab describing the
+drivers/char/vt.c.lvgd486.orig-705-	 * desired action), so that the number of background daemons
+drivers/char/vt.c.lvgd486.orig-706-	 * does not increase.
+drivers/char/vt.c.lvgd486.orig-707-	 */
+drivers/char/vt.c.lvgd486.orig-708-	case KDSIGACCEPT:
+drivers/char/vt.c.lvgd486.orig-709-	{
+drivers/char/vt.c.lvgd486.orig-710-		extern int spawnpid, spawnsig;
+drivers/char/vt.c.lvgd486.orig-711-		if (!perm || !capable(CAP_KILL))
+drivers/char/vt.c.lvgd486.orig:712:		  return -EPERM;
+drivers/char/vt.c.lvgd486.orig-713-		if (arg < 1 || arg > _NSIG || arg == SIGKILL)
+drivers/char/vt.c.lvgd486.orig-714-		  return -EINVAL;
+drivers/char/vt.c.lvgd486.orig-715-		spawnpid = current->pid;
+drivers/char/vt.c.lvgd486.orig-716-		spawnsig = arg;
+drivers/char/vt.c.lvgd486.orig-717-		return 0;
+drivers/char/vt.c.lvgd486.orig-718-	}
+drivers/char/vt.c.lvgd486.orig-719-
+drivers/char/vt.c.lvgd486.orig-720-	case VT_SETMODE:
+drivers/char/vt.c.lvgd486.orig-721-	{
+drivers/char/vt.c.lvgd486.orig-722-		struct vt_mode tmp;
+drivers/char/vt.c.lvgd486.orig-723-
+drivers/char/vt.c.lvgd486.orig-724-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:725:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-726-		if (copy_from_user(&tmp, (void*)arg, sizeof(struct vt_mode)))
+drivers/char/vt.c.lvgd486.orig-727-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-728-		if (tmp.mode != VT_AUTO && tmp.mode != VT_PROCESS)
+drivers/char/vt.c.lvgd486.orig-729-			return -EINVAL;
+drivers/char/vt.c.lvgd486.orig-730-		vt_cons[console]->vt_mode = tmp;
+drivers/char/vt.c.lvgd486.orig-731-		/* the frsig is ignored, so we set it to 0 */
+drivers/char/vt.c.lvgd486.orig-732-		vt_cons[console]->vt_mode.frsig = 0;
+drivers/char/vt.c.lvgd486.orig-733-		vt_cons[console]->vt_pid = current->pid;
+--
+drivers/char/vt.c.lvgd486.orig-771-
+drivers/char/vt.c.lvgd486.orig-772-	/*
+drivers/char/vt.c.lvgd486.orig-773-	 * ioctl(fd, VT_ACTIVATE, num) will cause us to switch to vt # num,
+drivers/char/vt.c.lvgd486.orig-774-	 * with num >= 1 (switches to vt 0, our console, are not allowed, just
+drivers/char/vt.c.lvgd486.orig-775-	 * to preserve sanity).
+drivers/char/vt.c.lvgd486.orig-776-	 */
+drivers/char/vt.c.lvgd486.orig-777-	case VT_ACTIVATE:
+drivers/char/vt.c.lvgd486.orig-778-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:779:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-780-		if (arg == 0 || arg > MAX_NR_CONSOLES)
+drivers/char/vt.c.lvgd486.orig-781-			return -ENXIO;
+drivers/char/vt.c.lvgd486.orig-782-		arg--;
+drivers/char/vt.c.lvgd486.orig-783-		i = vc_allocate(arg);
+drivers/char/vt.c.lvgd486.orig-784-		if (i)
+drivers/char/vt.c.lvgd486.orig-785-			return i;
+drivers/char/vt.c.lvgd486.orig-786-		set_console(arg);
+drivers/char/vt.c.lvgd486.orig-787-		return 0;
+drivers/char/vt.c.lvgd486.orig-788-
+drivers/char/vt.c.lvgd486.orig-789-	/*
+drivers/char/vt.c.lvgd486.orig-790-	 * wait until the specified VT has been activated
+drivers/char/vt.c.lvgd486.orig-791-	 */
+drivers/char/vt.c.lvgd486.orig-792-	case VT_WAITACTIVE:
+drivers/char/vt.c.lvgd486.orig-793-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:794:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-795-		if (arg == 0 || arg > MAX_NR_CONSOLES)
+drivers/char/vt.c.lvgd486.orig-796-			return -ENXIO;
+drivers/char/vt.c.lvgd486.orig-797-		return vt_waitactive(arg-1);
+drivers/char/vt.c.lvgd486.orig-798-
+drivers/char/vt.c.lvgd486.orig-799-	/*
+drivers/char/vt.c.lvgd486.orig-800-	 * If a vt is under process control, the kernel will not switch to it
+drivers/char/vt.c.lvgd486.orig-801-	 * immediately, but postpone the operation until the process calls this
+drivers/char/vt.c.lvgd486.orig-802-	 * ioctl, allowing the switch to complete.
+drivers/char/vt.c.lvgd486.orig-803-	 *
+drivers/char/vt.c.lvgd486.orig-804-	 * According to the X sources this is the behavior:
+drivers/char/vt.c.lvgd486.orig-805-	 *	0:	pending switch-from not OK
+drivers/char/vt.c.lvgd486.orig-806-	 *	1:	pending switch-from OK
+drivers/char/vt.c.lvgd486.orig-807-	 *	2:	completed switch-to OK
+drivers/char/vt.c.lvgd486.orig-808-	 */
+drivers/char/vt.c.lvgd486.orig-809-	case VT_RELDISP:
+drivers/char/vt.c.lvgd486.orig-810-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:811:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-812-		if (vt_cons[console]->vt_mode.mode != VT_PROCESS)
+drivers/char/vt.c.lvgd486.orig-813-			return -EINVAL;
+drivers/char/vt.c.lvgd486.orig-814-
+drivers/char/vt.c.lvgd486.orig-815-		/*
+drivers/char/vt.c.lvgd486.orig-816-		 * Switching-from response
+drivers/char/vt.c.lvgd486.orig-817-		 */
+drivers/char/vt.c.lvgd486.orig-818-		if (vt_cons[console]->vt_newvt >= 0)
+drivers/char/vt.c.lvgd486.orig-819-		{
+--
+drivers/char/vt.c.lvgd486.orig-881-		}
+drivers/char/vt.c.lvgd486.orig-882-		return 0;
+drivers/char/vt.c.lvgd486.orig-883-
+drivers/char/vt.c.lvgd486.orig-884-	case VT_RESIZE:
+drivers/char/vt.c.lvgd486.orig-885-	{
+drivers/char/vt.c.lvgd486.orig-886-		struct vt_sizes *vtsizes = (struct vt_sizes *) arg;
+drivers/char/vt.c.lvgd486.orig-887-		ushort ll,cc;
+drivers/char/vt.c.lvgd486.orig-888-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:889:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-890-		if (get_user(ll, &vtsizes->v_rows) ||
+drivers/char/vt.c.lvgd486.orig-891-		    get_user(cc, &vtsizes->v_cols))
+drivers/char/vt.c.lvgd486.orig-892-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-893-		return vc_resize_all(ll, cc);
+drivers/char/vt.c.lvgd486.orig-894-	}
+drivers/char/vt.c.lvgd486.orig-895-
+drivers/char/vt.c.lvgd486.orig-896-	case VT_RESIZEX:
+drivers/char/vt.c.lvgd486.orig-897-	{
+drivers/char/vt.c.lvgd486.orig-898-		struct vt_consize *vtconsize = (struct vt_consize *) arg;
+drivers/char/vt.c.lvgd486.orig-899-		ushort ll,cc,vlin,clin,vcol,ccol;
+drivers/char/vt.c.lvgd486.orig-900-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:901:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-902-		if (verify_area(VERIFY_READ, (void *)vtconsize,
+drivers/char/vt.c.lvgd486.orig-903-				sizeof(struct vt_consize)))
+drivers/char/vt.c.lvgd486.orig-904-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-905-		__get_user(ll, &vtconsize->v_rows);
+drivers/char/vt.c.lvgd486.orig-906-		__get_user(cc, &vtconsize->v_cols);
+drivers/char/vt.c.lvgd486.orig-907-		__get_user(vlin, &vtconsize->v_vlin);
+drivers/char/vt.c.lvgd486.orig-908-		__get_user(clin, &vtconsize->v_clin);
+drivers/char/vt.c.lvgd486.orig-909-		__get_user(vcol, &vtconsize->v_vcol);
+--
+drivers/char/vt.c.lvgd486.orig-939-		  video_font_height = clin;
+drivers/char/vt.c.lvgd486.orig-940-		
+drivers/char/vt.c.lvgd486.orig-941-		return vc_resize_all(ll, cc);
+drivers/char/vt.c.lvgd486.orig-942-  	}
+drivers/char/vt.c.lvgd486.orig-943-
+drivers/char/vt.c.lvgd486.orig-944-	case PIO_FONT: {
+drivers/char/vt.c.lvgd486.orig-945-		struct console_font_op op;
+drivers/char/vt.c.lvgd486.orig-946-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:947:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-948-		op.op = KD_FONT_OP_SET;
+drivers/char/vt.c.lvgd486.orig-949-		op.flags = KD_FONT_FLAG_OLD | KD_FONT_FLAG_DONT_RECALC;	/* Compatibility */
+drivers/char/vt.c.lvgd486.orig-950-		op.width = 8;
+drivers/char/vt.c.lvgd486.orig-951-		op.height = 0;
+drivers/char/vt.c.lvgd486.orig-952-		op.charcount = 256;
+drivers/char/vt.c.lvgd486.orig-953-		op.data = (char *) arg;
+drivers/char/vt.c.lvgd486.orig:954:		return con_font_op(fg_console, &op);
+drivers/char/vt.c.lvgd486.orig-955-	}
+drivers/char/vt.c.lvgd486.orig-956-
+drivers/char/vt.c.lvgd486.orig-957-	case GIO_FONT: {
+drivers/char/vt.c.lvgd486.orig-958-		struct console_font_op op;
+drivers/char/vt.c.lvgd486.orig:959:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c.lvgd486.orig-960-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c.lvgd486.orig-961-		op.width = 8;
+drivers/char/vt.c.lvgd486.orig-962-		op.height = 32;
+drivers/char/vt.c.lvgd486.orig-963-		op.charcount = 256;
+drivers/char/vt.c.lvgd486.orig-964-		op.data = (char *) arg;
+drivers/char/vt.c.lvgd486.orig:965:		return con_font_op(fg_console, &op);
+drivers/char/vt.c.lvgd486.orig-966-	}
+drivers/char/vt.c.lvgd486.orig-967-
+drivers/char/vt.c.lvgd486.orig-968-	case PIO_CMAP:
+drivers/char/vt.c.lvgd486.orig-969-                if (!perm)
+drivers/char/vt.c.lvgd486.orig:970:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-971-                return con_set_cmap((char *)arg);
+drivers/char/vt.c.lvgd486.orig-972-
+drivers/char/vt.c.lvgd486.orig-973-	case GIO_CMAP:
+drivers/char/vt.c.lvgd486.orig-974-                return con_get_cmap((char *)arg);
+drivers/char/vt.c.lvgd486.orig-975-
+drivers/char/vt.c.lvgd486.orig-976-	case PIO_FONTX:
+drivers/char/vt.c.lvgd486.orig-977-	case GIO_FONTX:
+drivers/char/vt.c.lvgd486.orig-978-		return do_fontx_ioctl(cmd, (struct consolefontdesc *)arg, perm);
+drivers/char/vt.c.lvgd486.orig-979-
+drivers/char/vt.c.lvgd486.orig-980-	case PIO_FONTRESET:
+drivers/char/vt.c.lvgd486.orig-981-	{
+drivers/char/vt.c.lvgd486.orig-982-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:983:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-984-
+drivers/char/vt.c.lvgd486.orig-985-#ifdef BROKEN_GRAPHICS_PROGRAMS
+drivers/char/vt.c.lvgd486.orig-986-		/* With BROKEN_GRAPHICS_PROGRAMS defined, the default
+drivers/char/vt.c.lvgd486.orig-987-		   font is not saved. */
+drivers/char/vt.c.lvgd486.orig-988-		return -ENOSYS;
+drivers/char/vt.c.lvgd486.orig-989-#else
+drivers/char/vt.c.lvgd486.orig-990-		{
+drivers/char/vt.c.lvgd486.orig-991-		struct console_font_op op;
+drivers/char/vt.c.lvgd486.orig-992-		op.op = KD_FONT_OP_SET_DEFAULT;
+drivers/char/vt.c.lvgd486.orig-993-		op.data = NULL;
+drivers/char/vt.c.lvgd486.orig:994:		i = con_font_op(fg_console, &op);
+drivers/char/vt.c.lvgd486.orig-995-		if (i) return i;
+drivers/char/vt.c.lvgd486.orig-996-		con_set_default_unimap(fg_console);
+drivers/char/vt.c.lvgd486.orig-997-		return 0;
+drivers/char/vt.c.lvgd486.orig-998-		}
+drivers/char/vt.c.lvgd486.orig-999-#endif
+drivers/char/vt.c.lvgd486.orig-1000-	}
+drivers/char/vt.c.lvgd486.orig-1001-
+drivers/char/vt.c.lvgd486.orig-1002-	case KDFONTOP: {
+drivers/char/vt.c.lvgd486.orig-1003-		struct console_font_op op;
+drivers/char/vt.c.lvgd486.orig-1004-		if (copy_from_user(&op, (void *) arg, sizeof(op)))
+drivers/char/vt.c.lvgd486.orig-1005-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig:1006:		if (!perm && op.op != KD_FONT_OP_GET)
+drivers/char/vt.c.lvgd486.orig:1007:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig:1008:		i = con_font_op(console, &op);
+drivers/char/vt.c.lvgd486.orig-1009-		if (i) return i;
+drivers/char/vt.c.lvgd486.orig-1010-		if (copy_to_user((void *) arg, &op, sizeof(op)))
+drivers/char/vt.c.lvgd486.orig-1011-			return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-1012-		return 0;
+drivers/char/vt.c.lvgd486.orig-1013-	}
+drivers/char/vt.c.lvgd486.orig-1014-
+drivers/char/vt.c.lvgd486.orig-1015-	case PIO_SCRNMAP:
+drivers/char/vt.c.lvgd486.orig-1016-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:1017:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-1018-		return con_set_trans_old((unsigned char *)arg);
+drivers/char/vt.c.lvgd486.orig-1019-
+drivers/char/vt.c.lvgd486.orig-1020-	case GIO_SCRNMAP:
+drivers/char/vt.c.lvgd486.orig-1021-		return con_get_trans_old((unsigned char *)arg);
+drivers/char/vt.c.lvgd486.orig-1022-
+drivers/char/vt.c.lvgd486.orig-1023-	case PIO_UNISCRNMAP:
+drivers/char/vt.c.lvgd486.orig-1024-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:1025:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-1026-		return con_set_trans_new((unsigned short *)arg);
+drivers/char/vt.c.lvgd486.orig-1027-
+drivers/char/vt.c.lvgd486.orig-1028-	case GIO_UNISCRNMAP:
+drivers/char/vt.c.lvgd486.orig-1029-		return con_get_trans_new((unsigned short *)arg);
+drivers/char/vt.c.lvgd486.orig-1030-
+drivers/char/vt.c.lvgd486.orig-1031-	case PIO_UNIMAPCLR:
+drivers/char/vt.c.lvgd486.orig-1032-	      { struct unimapinit ui;
+drivers/char/vt.c.lvgd486.orig-1033-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:1034:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-1035-		i = copy_from_user(&ui, (void *)arg, sizeof(struct unimapinit));
+drivers/char/vt.c.lvgd486.orig-1036-		if (i) return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-1037-		con_clear_unimap(fg_console, &ui);
+drivers/char/vt.c.lvgd486.orig-1038-		return 0;
+drivers/char/vt.c.lvgd486.orig-1039-	      }
+drivers/char/vt.c.lvgd486.orig-1040-
+drivers/char/vt.c.lvgd486.orig-1041-	case PIO_UNIMAP:
+drivers/char/vt.c.lvgd486.orig-1042-	case GIO_UNIMAP:
+drivers/char/vt.c.lvgd486.orig-1043-		return do_unimap_ioctl(cmd, (struct unimapdesc *)arg, perm);
+drivers/char/vt.c.lvgd486.orig-1044-
+drivers/char/vt.c.lvgd486.orig-1045-	case VT_LOCKSWITCH:
+drivers/char/vt.c.lvgd486.orig-1046-		if (!suser())
+drivers/char/vt.c.lvgd486.orig:1047:		   return -EPERM;
+drivers/char/vt.c.lvgd486.orig-1048-		vt_dont_switch = 1;
+drivers/char/vt.c.lvgd486.orig-1049-		return 0;
+drivers/char/vt.c.lvgd486.orig-1050-	case VT_UNLOCKSWITCH:
+drivers/char/vt.c.lvgd486.orig-1051-		if (!suser())
+drivers/char/vt.c.lvgd486.orig:1052:		   return -EPERM;
+drivers/char/vt.c.lvgd486.orig-1053-		vt_dont_switch = 0;
+drivers/char/vt.c.lvgd486.orig-1054-		return 0;
+drivers/char/vt.c.lvgd486.orig-1055-#ifdef CONFIG_FB_COMPAT_XPMAC
+drivers/char/vt.c.lvgd486.orig-1056-	case VC_GETMODE:
+drivers/char/vt.c.lvgd486.orig-1057-		{
+drivers/char/vt.c.lvgd486.orig-1058-			struct vc_mode mode;
+drivers/char/vt.c.lvgd486.orig-1059-
+drivers/char/vt.c.lvgd486.orig-1060-			i = verify_area(VERIFY_WRITE, (void *) arg,
+--
+drivers/char/vt.c.lvgd486.orig-1068-			return 0;
+drivers/char/vt.c.lvgd486.orig-1069-		}
+drivers/char/vt.c.lvgd486.orig-1070-	case VC_SETMODE:
+drivers/char/vt.c.lvgd486.orig-1071-	case VC_INQMODE:
+drivers/char/vt.c.lvgd486.orig-1072-		{
+drivers/char/vt.c.lvgd486.orig-1073-			struct vc_mode mode;
+drivers/char/vt.c.lvgd486.orig-1074-
+drivers/char/vt.c.lvgd486.orig-1075-			if (!perm)
+drivers/char/vt.c.lvgd486.orig:1076:				return -EPERM;
+drivers/char/vt.c.lvgd486.orig-1077-			if (copy_from_user(&mode, (void *) arg, sizeof(mode)))
+drivers/char/vt.c.lvgd486.orig-1078-				return -EFAULT;
+drivers/char/vt.c.lvgd486.orig-1079-			return console_setmode(&mode, cmd == VC_SETMODE);
+drivers/char/vt.c.lvgd486.orig-1080-		}
+drivers/char/vt.c.lvgd486.orig-1081-	case VC_SETCMAP:
+drivers/char/vt.c.lvgd486.orig-1082-		{
+drivers/char/vt.c.lvgd486.orig-1083-			unsigned char cmap[3][256], *p;
+drivers/char/vt.c.lvgd486.orig-1084-			int n_entries, cmap_size, i, j;
+drivers/char/vt.c.lvgd486.orig-1085-
+drivers/char/vt.c.lvgd486.orig-1086-			if (!perm)
+drivers/char/vt.c.lvgd486.orig:1087:				return -EPERM;
+drivers/char/vt.c.lvgd486.orig-1088-			if (arg == (unsigned long) VC_POWERMODE_INQUIRY
+drivers/char/vt.c.lvgd486.orig-1089-			    || arg <= VESA_POWERDOWN) {
+drivers/char/vt.c.lvgd486.orig-1090-				/* compatibility hack: VC_POWERMODE
+drivers/char/vt.c.lvgd486.orig-1091-				   was changed from 0x766a to 0x766c */
+drivers/char/vt.c.lvgd486.orig-1092-				return console_powermode((int) arg);
+drivers/char/vt.c.lvgd486.orig-1093-			}
+drivers/char/vt.c.lvgd486.orig-1094-			if (get_user(cmap_size, (int *) arg))
+drivers/char/vt.c.lvgd486.orig-1095-				return -EFAULT;
+--
+drivers/char/vt.c.lvgd486.orig-1106-			return console_setcmap(n_entries, cmap[0],
+drivers/char/vt.c.lvgd486.orig-1107-					       cmap[1], cmap[2]);
+drivers/char/vt.c.lvgd486.orig-1108-		}
+drivers/char/vt.c.lvgd486.orig-1109-	case VC_GETCMAP:
+drivers/char/vt.c.lvgd486.orig-1110-		/* not implemented yet */
+drivers/char/vt.c.lvgd486.orig-1111-		return -ENOIOCTLCMD;
+drivers/char/vt.c.lvgd486.orig-1112-	case VC_POWERMODE:
+drivers/char/vt.c.lvgd486.orig-1113-		if (!perm)
+drivers/char/vt.c.lvgd486.orig:1114:			return -EPERM;
+drivers/char/vt.c.lvgd486.orig-1115-		return console_powermode((int) arg);
+drivers/char/vt.c.lvgd486.orig-1116-#endif /* CONFIG_FB_COMPAT_XPMAC */
+drivers/char/vt.c.lvgd486.orig-1117-	default:
+drivers/char/vt.c.lvgd486.orig-1118-		return -ENOIOCTLCMD;
+drivers/char/vt.c.lvgd486.orig-1119-	}
+drivers/char/vt.c.lvgd486.orig-1120-}
+drivers/char/vt.c.lvgd486.orig-1121-
+drivers/char/vt.c.lvgd486.orig-1122-/*
+
+=== 6. EPERM checks in relevant console sources ===
+drivers/char/console.c-667-	    long p, q;
+drivers/char/console.c-668-
+drivers/char/console.c-669-	    /* prevent users from taking too much memory */
+drivers/char/console.c:670:	    if (currcons >= MAX_NR_USER_CONSOLES && !capable(CAP_SYS_RESOURCE))
+drivers/char/console.c:671:	      return -EPERM;
+drivers/char/console.c-672-
+drivers/char/console.c-673-	    /* due to the granularity of kmalloc, we waste some memory here */
+drivers/char/console.c-674-	    /* the alloc is done in two steps, to optimize the common situation
+--
+drivers/char/console.c-2228-
+drivers/char/console.c-2229-	if (tty->driver.type != TTY_DRIVER_TYPE_CONSOLE)
+drivers/char/console.c-2230-		return -EINVAL;
+drivers/char/console.c:2231:	if (current->tty != tty && !capable(CAP_SYS_ADMIN))
+drivers/char/console.c:2232:		return -EPERM;
+drivers/char/console.c-2233-	if (get_user(type, (char *)arg))
+drivers/char/console.c-2234-		return -EFAULT;
+drivers/char/console.c-2235-	ret = 0;
+--
+drivers/char/console.c-2268-			set_vesa_blanking(arg);
+drivers/char/console.c-2269-			break;;
+drivers/char/console.c-2270-		case 11:	/* set kmsg redirect */
+drivers/char/console.c:2271:			if (!capable(CAP_SYS_ADMIN)) {
+drivers/char/console.c:2272:				ret = -EPERM;
+drivers/char/console.c-2273-			} else {
+drivers/char/console.c-2274-				if (get_user(data, (char *)arg+1))
+drivers/char/console.c-2275-					ret = -EFAULT;
+--
+drivers/char/console.c-2881-
+drivers/char/console.c-2882-#define max_font_size 65536
+drivers/char/console.c-2883-
+drivers/char/console.c:2884:int con_font_op(int currcons, struct console_font_op *op)
+drivers/char/console.c-2885-{
+drivers/char/console.c-2886-	int rc = -EINVAL;
+drivers/char/console.c-2887-	int size = max_font_size, set;
+--
+drivers/char/console.c-2924-		if (size > max_font_size)
+drivers/char/console.c-2925-			return -ENOSPC;
+drivers/char/console.c-2926-		set = 1;
+drivers/char/console.c:2927:	} else if (op->op == KD_FONT_OP_GET)
+drivers/char/console.c-2928-		set = 0;
+drivers/char/console.c-2929-	else
+drivers/char/console.c:2930:		return sw->con_font_op(vc_cons[currcons].d, op);
+drivers/char/console.c-2931-	if (op->data) {
+drivers/char/console.c-2932-		temp = kmalloc(size, GFP_KERNEL);
+drivers/char/console.c-2933-		if (!temp)
+--
+drivers/char/console.c-2940-	}
+drivers/char/console.c-2941-
+drivers/char/console.c-2942-	acquire_console_sem();
+drivers/char/console.c:2943:	rc = sw->con_font_op(vc_cons[currcons].d, op);
+drivers/char/console.c-2944-	release_console_sem();
+drivers/char/console.c-2945-
+drivers/char/console.c-2946-	op->data = old_op.data;
+--
+drivers/char/vt.c-166-	if (i >= NR_KEYS || s >= MAX_NR_KEYMAPS)
+drivers/char/vt.c-167-		return -EINVAL;	
+drivers/char/vt.c-168-
+drivers/char/vt.c:169:	if (!capable(CAP_SYS_TTY_CONFIG))
+drivers/char/vt.c-170-		perm = 0;
+drivers/char/vt.c-171-
+drivers/char/vt.c-172-	switch (cmd) {
+--
+drivers/char/vt.c-181-		return put_user(val, &user_kbe->kb_value);
+drivers/char/vt.c-182-	case KDSKBENT:
+drivers/char/vt.c-183-		if (!perm)
+drivers/char/vt.c:184:			return -EPERM;
+drivers/char/vt.c-185-		if (!i && v == K_NOSUCHMAP) {
+drivers/char/vt.c-186-			/* disallocate map */
+drivers/char/vt.c-187-			key_map = key_maps[s];
+--
+drivers/char/vt.c-213-			int j;
+drivers/char/vt.c-214-
+drivers/char/vt.c-215-			if (keymap_count >= MAX_NR_OF_USER_KEYMAPS &&
+drivers/char/vt.c:216:			    !capable(CAP_SYS_RESOURCE))
+drivers/char/vt.c:217:				return -EPERM;
+drivers/char/vt.c-218-
+drivers/char/vt.c-219-			key_map = (ushort *) kmalloc(sizeof(plain_map),
+drivers/char/vt.c-220-						     GFP_KERNEL);
+--
+drivers/char/vt.c-232-		/*
+drivers/char/vt.c-233-		 * Attention Key.
+drivers/char/vt.c-234-		 */
+drivers/char/vt.c:235:		if (((ov == K_SAK) || (v == K_SAK)) && !capable(CAP_SYS_ADMIN))
+drivers/char/vt.c:236:			return -EPERM;
+drivers/char/vt.c-237-		key_map[i] = U(v);
+drivers/char/vt.c-238-		if (!s && (KTYP(ov) == KT_SHIFT || KTYP(v) == KT_SHIFT))
+drivers/char/vt.c-239-			compute_shiftstate();
+--
+drivers/char/vt.c-261-		break;
+drivers/char/vt.c-262-	case KDSETKEYCODE:
+drivers/char/vt.c-263-		if (!perm)
+drivers/char/vt.c:264:			return -EPERM;
+drivers/char/vt.c-265-		kc = setkeycode(tmp.scancode, tmp.keycode);
+drivers/char/vt.c-266-		break;
+drivers/char/vt.c-267-	}
+--
+drivers/char/vt.c-279-	char *first_free, *fj, *fnw;
+drivers/char/vt.c-280-	int i, j, k;
+drivers/char/vt.c-281-
+drivers/char/vt.c:282:	if (!capable(CAP_SYS_TTY_CONFIG))
+drivers/char/vt.c-283-		perm = 0;
+drivers/char/vt.c-284-
+drivers/char/vt.c-285-	/* we mostly copy too much here (512bytes), but who cares ;) */
+--
+drivers/char/vt.c-305-		return ((p && *p) ? -EOVERFLOW : 0);
+drivers/char/vt.c-306-	case KDSKBSENT:
+drivers/char/vt.c-307-		if (!perm)
+drivers/char/vt.c:308:			return -EPERM;
+drivers/char/vt.c-309-
+drivers/char/vt.c-310-		q = func_table[i];
+drivers/char/vt.c-311-		first_free = funcbufptr + (funcbufsize - funcbufleft);
+--
+drivers/char/vt.c-374-	switch (cmd) {
+drivers/char/vt.c-375-	case PIO_FONTX:
+drivers/char/vt.c-376-		if (!perm)
+drivers/char/vt.c:377:			return -EPERM;
+drivers/char/vt.c-378-		op.op = KD_FONT_OP_SET;
+drivers/char/vt.c-379-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c-380-		op.width = 8;
+drivers/char/vt.c-381-		op.height = cfdarg.charheight;
+drivers/char/vt.c-382-		op.charcount = cfdarg.charcount;
+drivers/char/vt.c-383-		op.data = cfdarg.chardata;
+drivers/char/vt.c:384:		return con_font_op(fg_console, &op);
+drivers/char/vt.c-385-	case GIO_FONTX: {
+drivers/char/vt.c:386:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c-387-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c-388-		op.width = 8;
+drivers/char/vt.c-389-		op.height = cfdarg.charheight;
+drivers/char/vt.c-390-		op.charcount = cfdarg.charcount;
+drivers/char/vt.c-391-		op.data = cfdarg.chardata;
+drivers/char/vt.c:392:		i = con_font_op(fg_console, &op);
+drivers/char/vt.c-393-		if (i)
+drivers/char/vt.c-394-			return i;
+drivers/char/vt.c-395-		cfdarg.charheight = op.height;
+--
+drivers/char/vt.c-418-	switch (cmd) {
+drivers/char/vt.c-419-	case PIO_UNIMAP:
+drivers/char/vt.c-420-		if (!perm)
+drivers/char/vt.c:421:			return -EPERM;
+drivers/char/vt.c-422-		return con_set_unimap(fg_console, tmp.entry_ct, tmp.entries);
+drivers/char/vt.c-423-	case GIO_UNIMAP:
+drivers/char/vt.c-424-		return con_get_unimap(fg_console, tmp.entry_ct, &(user_ud->entry_ct), tmp.entries);
+--
+drivers/char/vt.c-456-	switch (cmd) {
+drivers/char/vt.c-457-	case KIOCSOUND:
+drivers/char/vt.c-458-		if (!perm)
+drivers/char/vt.c:459:			return -EPERM;
+drivers/char/vt.c-460-		if (arg)
+drivers/char/vt.c-461-			arg = 1193180 / arg;
+drivers/char/vt.c-462-		kd_mksound(arg, 0);
+--
+drivers/char/vt.c-464-
+drivers/char/vt.c-465-	case KDMKTONE:
+drivers/char/vt.c-466-		if (!perm)
+drivers/char/vt.c:467:			return -EPERM;
+drivers/char/vt.c-468-	{
+drivers/char/vt.c-469-		unsigned int ticks, count;
+drivers/char/vt.c-470-		
+--
+drivers/char/vt.c-514-	{
+drivers/char/vt.c-515-		struct kbd_repeat kbrep;
+drivers/char/vt.c-516-		
+drivers/char/vt.c:517:		if (!capable(CAP_SYS_ADMIN))
+drivers/char/vt.c:518:			return -EPERM;
+drivers/char/vt.c-519-
+drivers/char/vt.c-520-		if (copy_from_user(&kbrep, (void *)arg,
+drivers/char/vt.c-521-				   sizeof(struct kbd_repeat)))
+--
+drivers/char/vt.c-534-		 * doesn't do a whole lot. i'm not sure if it should do any
+drivers/char/vt.c-535-		 * restoration of modes or what...
+drivers/char/vt.c-536-		 */
+drivers/char/vt.c:537:			return -EPERM;
+drivers/char/vt.c-538-		switch (arg) {
+drivers/char/vt.c-539-		case KD_GRAPHICS:
+drivers/char/vt.c-540-			break;
+--
+drivers/char/vt.c-574-
+drivers/char/vt.c-575-	case KDSKBMODE:
+drivers/char/vt.c-576-		if (!perm)
+drivers/char/vt.c:577:			return -EPERM;
+drivers/char/vt.c-578-		switch(arg) {
+drivers/char/vt.c-579-		  case K_RAW:
+drivers/char/vt.c-580-			kbd->kbdmode = VC_RAW;
+--
+drivers/char/vt.c-625-
+drivers/char/vt.c-626-	case KDGETKEYCODE:
+drivers/char/vt.c-627-	case KDSETKEYCODE:
+drivers/char/vt.c:628:		if(!capable(CAP_SYS_ADMIN))
+drivers/char/vt.c-629-			perm=0;
+drivers/char/vt.c-630-		return do_kbkeycode_ioctl(cmd, (struct kbkeycode *)arg, perm);
+drivers/char/vt.c-631-
+--
+drivers/char/vt.c-654-		unsigned int ct;
+drivers/char/vt.c-655-
+drivers/char/vt.c-656-		if (!perm)
+drivers/char/vt.c:657:			return -EPERM;
+drivers/char/vt.c-658-		if (get_user(ct,&a->kb_cnt))
+drivers/char/vt.c-659-			return -EFAULT;
+drivers/char/vt.c-660-		if (ct >= MAX_DIACR)
+--
+drivers/char/vt.c-673-
+drivers/char/vt.c-674-	case KDSKBLED:
+drivers/char/vt.c-675-		if (!perm)
+drivers/char/vt.c:676:			return -EPERM;
+drivers/char/vt.c-677-		if (arg & ~0x77)
+drivers/char/vt.c-678-			return -EINVAL;
+drivers/char/vt.c-679-		kbd->ledflagstate = (arg & 7);
+--
+drivers/char/vt.c-690-
+drivers/char/vt.c-691-	case KDSETLED:
+drivers/char/vt.c-692-		if (!perm)
+drivers/char/vt.c:693:		  return -EPERM;
+drivers/char/vt.c-694-		setledstate(kbd, arg);
+drivers/char/vt.c-695-		return 0;
+drivers/char/vt.c-696-
+--
+drivers/char/vt.c-707-	case KDSIGACCEPT:
+drivers/char/vt.c-708-	{
+drivers/char/vt.c-709-		extern int spawnpid, spawnsig;
+drivers/char/vt.c:710:		if (!perm || !capable(CAP_KILL))
+drivers/char/vt.c:711:		  return -EPERM;
+drivers/char/vt.c-712-		if (arg < 1 || arg > _NSIG || arg == SIGKILL)
+drivers/char/vt.c-713-		  return -EINVAL;
+drivers/char/vt.c-714-		spawnpid = current->pid;
+--
+drivers/char/vt.c-721-		struct vt_mode tmp;
+drivers/char/vt.c-722-
+drivers/char/vt.c-723-		if (!perm)
+drivers/char/vt.c:724:			return -EPERM;
+drivers/char/vt.c-725-		if (copy_from_user(&tmp, (void*)arg, sizeof(struct vt_mode)))
+drivers/char/vt.c-726-			return -EFAULT;
+drivers/char/vt.c-727-		if (tmp.mode != VT_AUTO && tmp.mode != VT_PROCESS)
+--
+drivers/char/vt.c-775-	 */
+drivers/char/vt.c-776-	case VT_ACTIVATE:
+drivers/char/vt.c-777-		if (!perm)
+drivers/char/vt.c:778:			return -EPERM;
+drivers/char/vt.c-779-		if (arg == 0 || arg > MAX_NR_CONSOLES)
+drivers/char/vt.c-780-			return -ENXIO;
+drivers/char/vt.c-781-		arg--;
+--
+drivers/char/vt.c-790-	 */
+drivers/char/vt.c-791-	case VT_WAITACTIVE:
+drivers/char/vt.c-792-		if (!perm)
+drivers/char/vt.c:793:			return -EPERM;
+drivers/char/vt.c-794-		if (arg == 0 || arg > MAX_NR_CONSOLES)
+drivers/char/vt.c-795-			return -ENXIO;
+drivers/char/vt.c-796-		return vt_waitactive(arg-1);
+--
+drivers/char/vt.c-807-	 */
+drivers/char/vt.c-808-	case VT_RELDISP:
+drivers/char/vt.c-809-		if (!perm)
+drivers/char/vt.c:810:			return -EPERM;
+drivers/char/vt.c-811-		if (vt_cons[console]->vt_mode.mode != VT_PROCESS)
+drivers/char/vt.c-812-			return -EINVAL;
+drivers/char/vt.c-813-
+--
+drivers/char/vt.c-885-		struct vt_sizes *vtsizes = (struct vt_sizes *) arg;
+drivers/char/vt.c-886-		ushort ll,cc;
+drivers/char/vt.c-887-		if (!perm)
+drivers/char/vt.c:888:			return -EPERM;
+drivers/char/vt.c-889-		if (get_user(ll, &vtsizes->v_rows) ||
+drivers/char/vt.c-890-		    get_user(cc, &vtsizes->v_cols))
+drivers/char/vt.c-891-			return -EFAULT;
+--
+drivers/char/vt.c-897-		struct vt_consize *vtconsize = (struct vt_consize *) arg;
+drivers/char/vt.c-898-		ushort ll,cc,vlin,clin,vcol,ccol;
+drivers/char/vt.c-899-		if (!perm)
+drivers/char/vt.c:900:			return -EPERM;
+drivers/char/vt.c-901-		if (verify_area(VERIFY_READ, (void *)vtconsize,
+drivers/char/vt.c-902-				sizeof(struct vt_consize)))
+drivers/char/vt.c-903-			return -EFAULT;
+--
+drivers/char/vt.c-943-	case PIO_FONT: {
+drivers/char/vt.c-944-		struct console_font_op op;
+drivers/char/vt.c-945-		if (!perm)
+drivers/char/vt.c:946:			return -EPERM;
+drivers/char/vt.c-947-		op.op = KD_FONT_OP_SET;
+drivers/char/vt.c-948-		op.flags = KD_FONT_FLAG_OLD | KD_FONT_FLAG_DONT_RECALC;	/* Compatibility */
+drivers/char/vt.c-949-		op.width = 8;
+drivers/char/vt.c-950-		op.height = 0;
+drivers/char/vt.c-951-		op.charcount = 256;
+drivers/char/vt.c-952-		op.data = (char *) arg;
+drivers/char/vt.c:953:		return con_font_op(fg_console, &op);
+drivers/char/vt.c-954-	}
+drivers/char/vt.c-955-
+drivers/char/vt.c-956-	case GIO_FONT: {
+drivers/char/vt.c-957-		struct console_font_op op;
+drivers/char/vt.c:958:		op.op = KD_FONT_OP_GET;
+drivers/char/vt.c-959-		op.flags = KD_FONT_FLAG_OLD;
+drivers/char/vt.c-960-		op.width = 8;
+drivers/char/vt.c-961-		op.height = 32;
+drivers/char/vt.c-962-		op.charcount = 256;
+drivers/char/vt.c-963-		op.data = (char *) arg;
+drivers/char/vt.c:964:		return con_font_op(fg_console, &op);
+drivers/char/vt.c-965-	}
+drivers/char/vt.c-966-
+drivers/char/vt.c-967-	case PIO_CMAP:
+drivers/char/vt.c-968-                if (!perm)
+drivers/char/vt.c:969:			return -EPERM;
+drivers/char/vt.c-970-                return con_set_cmap((char *)arg);
+drivers/char/vt.c-971-
+drivers/char/vt.c-972-	case GIO_CMAP:
+--
+drivers/char/vt.c-979-	case PIO_FONTRESET:
+drivers/char/vt.c-980-	{
+drivers/char/vt.c-981-		if (!perm)
+drivers/char/vt.c:982:			return -EPERM;
+drivers/char/vt.c-983-
+drivers/char/vt.c-984-#ifdef BROKEN_GRAPHICS_PROGRAMS
+drivers/char/vt.c-985-		/* With BROKEN_GRAPHICS_PROGRAMS defined, the default
+--
+drivers/char/vt.c-990-		struct console_font_op op;
+drivers/char/vt.c-991-		op.op = KD_FONT_OP_SET_DEFAULT;
+drivers/char/vt.c-992-		op.data = NULL;
+drivers/char/vt.c:993:		i = con_font_op(fg_console, &op);
+drivers/char/vt.c-994-		if (i) return i;
+drivers/char/vt.c-995-		con_set_default_unimap(fg_console);
+drivers/char/vt.c-996-		return 0;
+--
+drivers/char/vt.c-1002-		struct console_font_op op;
+drivers/char/vt.c-1003-		if (copy_from_user(&op, (void *) arg, sizeof(op)))
+drivers/char/vt.c-1004-			return -EFAULT;
+drivers/char/vt.c:1005:			return -EPERM;
+drivers/char/vt.c:1006:		i = con_font_op(console, &op);
+drivers/char/vt.c-1007-		if (i) return i;
+drivers/char/vt.c-1008-		if (copy_to_user((void *) arg, &op, sizeof(op)))
+drivers/char/vt.c-1009-			return -EFAULT;
+--
+drivers/char/vt.c-1012-
+drivers/char/vt.c-1013-	case PIO_SCRNMAP:
+drivers/char/vt.c-1014-		if (!perm)
+drivers/char/vt.c:1015:			return -EPERM;
+drivers/char/vt.c-1016-		return con_set_trans_old((unsigned char *)arg);
+drivers/char/vt.c-1017-
+drivers/char/vt.c-1018-	case GIO_SCRNMAP:
+--
+drivers/char/vt.c-1020-
+drivers/char/vt.c-1021-	case PIO_UNISCRNMAP:
+drivers/char/vt.c-1022-		if (!perm)
+drivers/char/vt.c:1023:			return -EPERM;
+drivers/char/vt.c-1024-		return con_set_trans_new((unsigned short *)arg);
+drivers/char/vt.c-1025-
+drivers/char/vt.c-1026-	case GIO_UNISCRNMAP:
+--
+drivers/char/vt.c-1029-	case PIO_UNIMAPCLR:
+drivers/char/vt.c-1030-	      { struct unimapinit ui;
+drivers/char/vt.c-1031-		if (!perm)
+drivers/char/vt.c:1032:			return -EPERM;
+drivers/char/vt.c-1033-		i = copy_from_user(&ui, (void *)arg, sizeof(struct unimapinit));
+drivers/char/vt.c-1034-		if (i) return -EFAULT;
+drivers/char/vt.c-1035-		con_clear_unimap(fg_console, &ui);
+--
+drivers/char/vt.c-1042-
+drivers/char/vt.c-1043-	case VT_LOCKSWITCH:
+drivers/char/vt.c-1044-		if (!suser())
+drivers/char/vt.c:1045:		   return -EPERM;
+drivers/char/vt.c-1046-		vt_dont_switch = 1;
+drivers/char/vt.c-1047-		return 0;
+drivers/char/vt.c-1048-	case VT_UNLOCKSWITCH:
+drivers/char/vt.c-1049-		if (!suser())
+drivers/char/vt.c:1050:		   return -EPERM;
+drivers/char/vt.c-1051-		vt_dont_switch = 0;
+drivers/char/vt.c-1052-		return 0;
+drivers/char/vt.c-1053-#ifdef CONFIG_FB_COMPAT_XPMAC
+--
+drivers/char/vt.c-1071-			struct vc_mode mode;
+drivers/char/vt.c-1072-
+drivers/char/vt.c-1073-			if (!perm)
+drivers/char/vt.c:1074:				return -EPERM;
+drivers/char/vt.c-1075-			if (copy_from_user(&mode, (void *) arg, sizeof(mode)))
+drivers/char/vt.c-1076-				return -EFAULT;
+drivers/char/vt.c-1077-			return console_setmode(&mode, cmd == VC_SETMODE);
+--
+drivers/char/vt.c-1082-			int n_entries, cmap_size, i, j;
+drivers/char/vt.c-1083-
+drivers/char/vt.c-1084-			if (!perm)
+drivers/char/vt.c:1085:				return -EPERM;
+drivers/char/vt.c-1086-			if (arg == (unsigned long) VC_POWERMODE_INQUIRY
+drivers/char/vt.c-1087-			    || arg <= VESA_POWERDOWN) {
+drivers/char/vt.c-1088-				/* compatibility hack: VC_POWERMODE
+--
+drivers/char/vt.c-1109-		return -ENOIOCTLCMD;
+drivers/char/vt.c-1110-	case VC_POWERMODE:
+drivers/char/vt.c-1111-		if (!perm)
+drivers/char/vt.c:1112:			return -EPERM;
+drivers/char/vt.c-1113-		return console_powermode((int) arg);
+drivers/char/vt.c-1114-#endif /* CONFIG_FB_COMPAT_XPMAC */
+drivers/char/vt.c-1115-	default:
+
+=== 7. Complete KDFONTOP handler in vt.c ===
+	case KDFONTOP: {
+		struct console_font_op op;
+		if (copy_from_user(&op, (void *) arg, sizeof(op)))
+			return -EFAULT;
+			return -EPERM;
+		i = con_font_op(console, &op);
+		if (i) return i;
+		if (copy_to_user((void *) arg, &op, sizeof(op)))
+			return -EFAULT;
+		return 0;
+	}
+
+	case PIO_SCRNMAP:
+		if (!perm)
+			return -EPERM;
+		return con_set_trans_old((unsigned char *)arg);
+
+	case GIO_SCRNMAP:
+		return con_get_trans_old((unsigned char *)arg);
+
+	case PIO_UNISCRNMAP:
+		if (!perm)
+			return -EPERM;
+		return con_set_trans_new((unsigned short *)arg);
+
+	case GIO_UNISCRNMAP:
+		return con_get_trans_new((unsigned short *)arg);
+
+	case PIO_UNIMAPCLR:
+	      { struct unimapinit ui;
+		if (!perm)
+			return -EPERM;
+		i = copy_from_user(&ui, (void *)arg, sizeof(struct unimapinit));
+		if (i) return -EFAULT;
+		con_clear_unimap(fg_console, &ui);
+		return 0;
+	      }
+
+	case PIO_UNIMAP:
+	case GIO_UNIMAP:
+		return do_unimap_ioctl(cmd, (struct unimapdesc *)arg, perm);
+
+	case VT_LOCKSWITCH:
+		if (!suser())
+		   return -EPERM;
+		vt_dont_switch = 1;
+		return 0;
+	case VT_UNLOCKSWITCH:
+		if (!suser())
+		   return -EPERM;
+		vt_dont_switch = 0;
+		return 0;
+#ifdef CONFIG_FB_COMPAT_XPMAC
+	case VC_GETMODE:
+		{
+			struct vc_mode mode;
+
+			i = verify_area(VERIFY_WRITE, (void *) arg,
+					sizeof(struct vc_mode));
+			if (i == 0)
+				i = console_getmode(&mode);
+			if (i)
+				return i;
+			if (copy_to_user((void *) arg, &mode, sizeof(mode)))
+				return -EFAULT;
+			return 0;
+		}
+	case VC_SETMODE:
+	case VC_INQMODE:
+		{
+			struct vc_mode mode;
+
+			if (!perm)
+				return -EPERM;
+			if (copy_from_user(&mode, (void *) arg, sizeof(mode)))
+				return -EFAULT;
+			return console_setmode(&mode, cmd == VC_SETMODE);
+		}
+	case VC_SETCMAP:
+		{
+			unsigned char cmap[3][256], *p;
+			int n_entries, cmap_size, i, j;
+
+			if (!perm)
+				return -EPERM;
+			if (arg == (unsigned long) VC_POWERMODE_INQUIRY
+			    || arg <= VESA_POWERDOWN) {
+				/* compatibility hack: VC_POWERMODE
+				   was changed from 0x766a to 0x766c */
+				return console_powermode((int) arg);
+			}
+			if (get_user(cmap_size, (int *) arg))
+				return -EFAULT;
+			if (cmap_size % 3)
+				return -EINVAL;
+			n_entries = cmap_size / 3;
+			if ((unsigned) n_entries > 256)
+				return -EINVAL;
+			p = (unsigned char *) (arg + sizeof(int));
+			for (j = 0; j < n_entries; ++j)
+				for (i = 0; i < 3; ++i)
+					if (get_user(cmap[i][j], p++))
+						return -EFAULT;
+			return console_setcmap(n_entries, cmap[0],
+					       cmap[1], cmap[2]);
+		}
+	case VC_GETCMAP:
+		/* not implemented yet */
+		return -ENOIOCTLCMD;
+	case VC_POWERMODE:
+		if (!perm)
+			return -EPERM;
+		return console_powermode((int) arg);
+#endif /* CONFIG_FB_COMPAT_XPMAC */
+	default:
+		return -ENOIOCTLCMD;
+	}
+}
+
+/*
+ * Sometimes we want to wait until a particular VT has been activated. We
+ * do it in a very simple manner. Everybody waits on a single queue and
+ * get woken up at once. Those that are satisfied go on with their business,
+ * while those not ready go back to sleep. Seems overkill to add a wait
+ * to each vt just for this - usually this does nothing!
+ */
+static DECLARE_WAIT_QUEUE_HEAD(vt_activate_queue);
+
+/*
+ * Sleeps until a vt is activated, or the task is interrupted. Returns
+ * 0 if activation, -EINTR if interrupted.
+ */
+int vt_waitactive(int vt)
+{
+	int retval;
+	DECLARE_WAITQUEUE(wait, current);
+
+	add_wait_queue(&vt_activate_queue, &wait);
+	for (;;) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		retval = 0;
+		if (vt == fg_console)
+			break;
+		retval = -EINTR;
+		if (signal_pending(current))
+			break;
+
+=== Diagnostics finished ===

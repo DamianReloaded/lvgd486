@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Prepare Boot Directories
-# Script: 19-prepare-boot.sh
 # ============================================================
 
 KERNEL_IMAGE="/home/user/sources/linux/arch/i386/boot/bzImage"
@@ -60,27 +59,6 @@ prepare_boot()
     [ -s "$ROOT/boot/bzImage" ] ||
         fail "Kernel copy failed: $ROOT/boot/bzImage"
 
-    echo "Writing $ROOT/boot/grub/menu.lst"
-
-    run mkdir -p "$ROOT/boot/grub"
-
-    cat > "$ROOT/boot/grub/menu.lst" <<EOF
-default 0
-timeout 0
-hiddenmenu
-
-title $TITLE
-    root (hd0,0)
-    kernel /boot/bzImage root=/dev/hda1 rw quiet loglevel=0 sb=0x220,5,1,5,0x330
-EOF
-
-    STATUS=$?
-    [ "$STATUS" -eq 0 ] ||
-        fail "Could not write $ROOT/boot/grub/menu.lst"
-
-    [ -s "$ROOT/boot/grub/menu.lst" ] ||
-        fail "GRUB menu is missing or empty: $ROOT/boot/grub/menu.lst"
-
     echo "Boot files prepared for $TITLE"
 }
 
@@ -92,5 +70,5 @@ prepare_boot "$DISTRODEV_ROOT" "LVGD Development"
 prepare_boot "$DISTROGAME_ROOT" "LVGD Gaming"
 
 echo
-echo "SUCCESS: Boot directories, kernels, and GRUB menus prepared."
+echo "SUCCESS: Boot directory and kernel prepared."
 exit 0

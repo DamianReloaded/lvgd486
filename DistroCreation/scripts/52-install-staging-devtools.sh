@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Install Development Toolchain
-# Script: 20-install-staging-devtools.sh
 # ============================================================
 
 set -e

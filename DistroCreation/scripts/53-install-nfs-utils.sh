@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Install Portmap and NFS Utilities
-# Script: 28-install-nfs-utils.sh
 # Install built NFS utilities and portmap into the staging tree.
 # ============================================================
 

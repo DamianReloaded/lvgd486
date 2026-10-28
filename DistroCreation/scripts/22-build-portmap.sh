@@ -2,7 +2,6 @@
 
 # ============================================================
 # LVGD486 - Build Portmap 5
-# Script: 22-build-portmap.sh
 #
 # Build a statically linked RPC portmapper.
 # TCP Wrappers disabled; CHECK_PORT retained.

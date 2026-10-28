@@ -1,0 +1,7 @@
+default 0
+timeout 0
+hiddenmenu
+
+title LVGD Development
+    root (hd0,0)
+    kernel /boot/bzImage root=/dev/hda1 rw console=tty0 quiet loglevel=0 sb=0x220,5,1,5,0x330
