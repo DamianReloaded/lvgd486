@@ -15,9 +15,9 @@ No desktop environment to get in the way. No unnecessary layers. Just a focused 
 
 **Make your 486 a gaming machine.**
 
-- [I want to make it myself](#build-from-source)
-- [Development Distro Installer](#get-started)
-- [Gaming Distro Installer](#get-started)
+- [I want to build the distro myself](https://damianreloaded101.blogspot.com/p/lvgd486-from-sources-how-to.html)
+- [Gaming Distro Installer](REPLACE-WITH-GAMING-ISO-URL)
+- [Development Distro Installer](REPLACE-WITH-DEVELOPMENT-ISO-URL)
 
 ---
 
@@ -259,7 +259,7 @@ Use that knowledge to customize the distribution, investigate its code, and adap
 >
 > We encourage you to build LVGD486 yourself. There is a lot to learn from assembling an entire gaming operating system.
 
-[Read the Build Tutorial](REPLACE-WITH-BUILD-TUTORIAL-URL)
+[Read the Build Tutorial](https://damianreloaded101.blogspot.com/p/lvgd486-from-sources-how-to.html)
 
 ---
 
