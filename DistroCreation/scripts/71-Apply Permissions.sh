@@ -88,6 +88,18 @@ chown -R "${GAME_UID}:${GAME_GID}" \
     "${DISTRODEV_ROOT}/home" ||
     fail "Could not set games and home ownership."
 
+# ------------------------------------------------------------
+# Restore BusyBox SUID permissions
+# ------------------------------------------------------------
+
+echo "Setting BusyBox ownership and SUID permissions..."
+
+chown 0:0 "${DISTRODEV_ROOT}/bin/busybox" ||
+    fail "Could not set BusyBox ownership."
+
+chmod 4755 "${DISTRODEV_ROOT}/bin/busybox" ||
+    fail "Could not set BusyBox SUID permissions."
+
 echo
 echo "Staging ownership configured successfully."
 echo "============================================================"
