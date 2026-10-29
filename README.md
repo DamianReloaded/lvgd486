@@ -16,9 +16,9 @@ No desktop environment to get in the way. No unnecessary layers. Just a focused 
 **Make your 486 a gaming machine.**
 
 - [I want to build the distro myself](https://damianreloaded101.blogspot.com/p/lvgd486-from-sources-how-to.html)
-- [Gaming Distro Installer](REPLACE-WITH-GAMING-ISO-URL)
-- [Development Distro Installer](REPLACE-WITH-DEVELOPMENT-ISO-URL)
-
+- [Development Install CD](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-cd.7z?download=)
+- [Development Install USB](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-usb.7z?download=)
+- [Install Instructions](https://damianreloaded101.blogspot.com/p/lgvd486-install.html)
 ---
 
 ## Contents
@@ -156,7 +156,7 @@ The goal is to turn a surviving 486 into a dedicated gaming machine: boot the co
 
 **Choose this image to run LVGD486 games on real hardware or experiment with the system as a gaming platform.**
 
-[Download Gaming ISO](REPLACE-WITH-GAMING-ISO-URL)
+[Download Gaming ISO](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-cd.7z?download=)
 
 ### ISO-02: LVGD486 Development Environment
 
@@ -166,7 +166,8 @@ It is intended to include the tools needed to customize the kernel, rebuild LVGD
 
 **Choose this image to develop games, customize LVGD486, or work on the operating system itself.**
 
-[Download Development ISO](REPLACE-WITH-DEVELOPMENT-ISO-URL)
+[Download Development ISO](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-cd.7z?download=)
+[Download Development USB](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-usb.7z?download=)
 
 Documentation will accompany both images to explain their purpose and help you get started.
 
