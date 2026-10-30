@@ -54,7 +54,12 @@ public:
 
     void Stop();
 
+	bool SetVolume(int volume);
+	bool SetVolume(int left, int right);
+	bool GetVolume(int& left, int& right);
+
 private:
+
     enum
     {
         MaximumBufferFrames = 8820*10,
@@ -104,6 +109,8 @@ private:
                          int& actualChannels,
                          int& actualFormat);
 
+	void InitializeMixer();
+
     int m_Device;
     bool m_Initialized;
 
@@ -132,4 +139,7 @@ private:
     int m_NextBuffer;
 
     String<64> m_DevicePath;
+	
+	int m_Mixer;
+	int m_MixerControl;	
 };

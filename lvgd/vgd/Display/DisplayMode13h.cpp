@@ -903,4 +903,29 @@ namespace vgd
         {
         }
     }
+	
+    // -------------------------------------------------------------------------
+    // Palette
+    // -------------------------------------------------------------------------
+
+    bool DisplayMode13h::SetPalette(const uint8_t* palette)
+    {
+        if (!m_Initialized || !m_IoPermissionEnabled || !palette)
+            return false;
+
+        // Select the first VGA DAC palette entry.
+        OutByte(0x3C8, 0);
+
+        // Upload all 256 RGB entries.
+        for (int i = 0; i < 256; ++i)
+        {
+            OutByte(0x3C9, palette[0] >> 2);
+            OutByte(0x3C9, palette[1] >> 2);
+            OutByte(0x3C9, palette[2] >> 2);
+
+            palette += 3;
+        }
+
+        return true;
+    }
 }

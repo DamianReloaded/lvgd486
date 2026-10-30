@@ -6,18 +6,21 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <sys/ioctl.h>
 #include <sys/soundcard.h>
 
 Sound::Configuration::Configuration()
-    : SampleRate(11025),//(22050),
+    : SampleRate(22050),
       Channels(1),
-      BufferFrames(SampleRate/4)
+      BufferFrames(256)
 {
 }
 
 Sound::Sound()
     : m_Device(-1),
+      m_Mixer(-1),
+      m_MixerControl(-1),
       m_Initialized(false),
       m_ThreadStarted(false),
       m_StopWorker(false),
@@ -65,8 +68,8 @@ bool Sound::Initialize(const Configuration& configuration)
     if (configuration.BufferFrames < 1 ||
         configuration.BufferFrames > MaximumBufferFrames)
     {
-        fprintf(stderr, "Sound: buffer size must be 1..%d frames. Configured: %d\n",
-                MaximumBufferFrames, configuration.BufferFrames);
+        fprintf(stderr, "Sound: invalid buffer size %d.\n",
+                configuration.BufferFrames);
         return false;
     }
 
@@ -77,6 +80,7 @@ bool Sound::Initialize(const Configuration& configuration)
     }
 
     m_MutexInitialized = true;
+    m_StopRequested = false;
 
     static const char* DevicePaths[] =
     {
@@ -151,17 +155,71 @@ bool Sound::Initialize(const Configuration& configuration)
         printf("Sound: format %s.\n",
                m_SampleFormat == FormatSigned16 ? "S16_LE" : "U8");
         printf("Sound: generation block %d frames.\n", m_BufferFrames);
-        printf("Sound: user-space double buffering enabled.\n");
 
+        InitializeMixer();
+		SetVolume(100);
         return true;
     }
 
     fprintf(stderr, "Sound: no usable PCM playback device found.\n");
-    fprintf(stderr, "Sound: checked /dev/dsp, "
-                    "/dev/sound/dspW and /dev/sound/dsp.\n");
 
     DestroyMutex();
     return false;
+}
+
+void Sound::InitializeMixer()
+{
+    static const char* MixerPaths[] =
+    {
+        "/dev/mixer",
+        "/dev/sound/mixer"
+    };
+
+    for (size_t i = 0; i < sizeof(MixerPaths) / sizeof(MixerPaths[0]); ++i)
+    {
+        m_Mixer = open(MixerPaths[i], O_RDWR);
+
+        if (m_Mixer >= 0)
+        {
+            printf("Sound: mixer device %s.\n", MixerPaths[i]);
+            break;
+        }
+    }
+
+    if (m_Mixer < 0)
+    {
+        fprintf(stderr, "Sound: mixer unavailable: %s\n",
+                strerror(errno));
+        return;
+    }
+
+    int deviceMask = 0;
+
+    if (ioctl(m_Mixer, SOUND_MIXER_READ_DEVMASK, &deviceMask) < 0)
+    {
+        fprintf(stderr, "Sound: cannot read mixer device mask: %s\n",
+                strerror(errno));
+        close(m_Mixer);
+        m_Mixer = -1;
+        return;
+    }
+
+    if (deviceMask & (1 << SOUND_MIXER_PCM))
+    {
+        m_MixerControl = SOUND_MIXER_PCM;
+        printf("Sound: using PCM mixer control.\n");
+    }
+    else if (deviceMask & (1 << SOUND_MIXER_VOLUME))
+    {
+        m_MixerControl = SOUND_MIXER_VOLUME;
+        printf("Sound: using master volume control.\n");
+    }
+    else
+    {
+        printf("Sound: no usable PCM or master mixer control.\n");
+        close(m_Mixer);
+        m_Mixer = -1;
+    }
 }
 
 void Sound::Stop()
@@ -200,16 +258,9 @@ void Sound::Shutdown()
 {
     if (m_ThreadStarted)
     {
-        if (m_MutexInitialized)
-        {
-            pthread_mutex_lock(&m_Mutex);
-            m_StopWorker = true;
-            pthread_mutex_unlock(&m_Mutex);
-        }
-        else
-        {
-            m_StopWorker = true;
-        }
+        pthread_mutex_lock(&m_Mutex);
+        m_StopWorker = true;
+        pthread_mutex_unlock(&m_Mutex);
 
         pthread_join(m_Thread, NULL);
         m_ThreadStarted = false;
@@ -229,7 +280,12 @@ void Sound::Shutdown()
         close(m_Device);
     }
 
+    if (m_Mixer >= 0)
+        close(m_Mixer);
+
     m_Device = -1;
+    m_Mixer = -1;
+    m_MixerControl = -1;
     m_Initialized = false;
     m_StopWorker = false;
     m_WorkerFailed = false;
@@ -251,6 +307,58 @@ void Sound::Shutdown()
     }
 
     DestroyMutex();
+}
+
+bool Sound::SetVolume(int volume)
+{
+    return SetVolume(volume, volume);
+}
+
+bool Sound::SetVolume(int left, int right)
+{
+    if (m_Mixer < 0 || m_MixerControl < 0)
+        return false;
+
+    if (left < 0)
+        left = 0;
+    else if (left > 100)
+        left = 100;
+
+    if (right < 0)
+        right = 0;
+    else if (right > 100)
+        right = 100;
+
+    int value = (right << 8) | left;
+
+    if (ioctl(m_Mixer, MIXER_WRITE(m_MixerControl), &value) < 0)
+    {
+        fprintf(stderr, "Sound: cannot set mixer volume: %s\n",
+                strerror(errno));
+        return false;
+    }
+
+    return true;
+}
+
+bool Sound::GetVolume(int& left, int& right)
+{
+    if (m_Mixer < 0 || m_MixerControl < 0)
+        return false;
+
+    int value = 0;
+
+    if (ioctl(m_Mixer, MIXER_READ(m_MixerControl), &value) < 0)
+    {
+        fprintf(stderr, "Sound: cannot read mixer volume: %s\n",
+                strerror(errno));
+        return false;
+    }
+
+    left = value & 0xFF;
+    right = (value >> 8) & 0xFF;
+
+    return true;
 }
 
 bool Sound::IsInitialized() const
@@ -405,10 +513,6 @@ bool Sound::GenerateBuffer(AudioBuffer& buffer)
 
     if (pcmCallback != NULL)
     {
-        /*
-         * The callback generates signed 16-bit mono samples.
-         * It executes on the audio worker, never the display thread.
-         */
         pcmCallback(pcmContext, samples, m_BufferFrames);
     }
     else
@@ -531,35 +635,16 @@ bool Sound::WriteBuffer(const AudioBuffer& buffer)
 
 void Sound::WorkerLoop()
 {
-    /*
-     * Prime both buffers before normal alternating playback.
-     * OSS maintains its own output fragments independently.
-     */
-    for (int b = 0; b < DoubleBufferCount; ++b)
-    {
-        if (ShouldStopWorker())
-            return;
-
-        if (!GenerateBuffer(m_Buffers[b]))
-        {
-            SetWorkerFailed();
-            return;
-        }
-    }
-
     m_NextBuffer = 0;
 
     while (!ShouldStopWorker())
     {
         AudioBuffer& output = m_Buffers[m_NextBuffer];
 
-        if (!output.Ready)
+        if (!GenerateBuffer(output))
         {
-            if (!GenerateBuffer(output))
-            {
-                SetWorkerFailed();
-                return;
-            }
+            SetWorkerFailed();
+            return;
         }
 
         if (!WriteBuffer(output))
@@ -572,28 +657,7 @@ void Sound::WorkerLoop()
 
         output.Ready = false;
         output.ByteCount = 0;
-
-        /*
-         * Alternate the buffer used on each iteration.
-         * Both buffers are allocated in the Sound object, so
-         * playback performs no heap allocations.
-         */
         m_NextBuffer ^= 1;
-
-        /*
-         * Prepare the next buffer ahead of its next write.
-         * This keeps the buffers warm and ready for reuse.
-         */
-        AudioBuffer& next = m_Buffers[m_NextBuffer];
-
-        if (!next.Ready && !ShouldStopWorker())
-        {
-            if (!GenerateBuffer(next))
-            {
-                SetWorkerFailed();
-                return;
-            }
-        }
     }
 }
 
@@ -617,7 +681,6 @@ void Sound::DestroyMutex()
     }
 }
 
-
 bool Sound::ConfigureDevice(int device,
                             const char* path,
                             const Configuration& configuration,
@@ -626,50 +689,21 @@ bool Sound::ConfigureDevice(int device,
                             int& actualFormat)
 {
     /*
-     * Choose OSS buffering according to the requested sample rate.
-     *
-     * Fragment sizes are powers of two in bytes.
-     * The driver may adjust the requested count and size.
+     * Low-latency OSS fragment configuration.
+     * Adjust these two values to tune buffering.
      */
-    int fragmentCount;
-    int fragmentExponent;
-
-    if (configuration.SampleRate <= 11025)
-    {
-        fragmentCount = 4;
-        fragmentExponent = 9;  // 512 bytes
-    }
-    else if (configuration.SampleRate <= 22050)
-    {
-        fragmentCount = 4;
-        fragmentExponent = 10; // 1024 bytes
-    }
-    else
-    {
-        fragmentCount = 4;
-        fragmentExponent = 10; // 1024 bytes
-    }
-
-    int fragments = (fragmentCount << 16) | fragmentExponent;
-
-    if (ioctl(device, SNDCTL_DSP_SETFRAGMENT, &fragments) < 0)
-    {
-        fprintf(stderr, "Sound: %s does not support SETFRAGMENT: %s\n",
-                path, strerror(errno));
-        fprintf(stderr, "Sound: continuing with driver defaults.\n");
-    }
-    else
-    {
-        printf("Sound: %s accepted SETFRAGMENT request "
-               "(returned 0x%x).\n", path, fragments);
-    }
+    const int FragmentCount = 2;
+    const int FragmentFrames = 256;
 
     /*
-     * Prefer signed 16-bit little-endian PCM.
-     * Fall back to unsigned 8-bit PCM if necessary.
+     * Request fragment configuration before configuring
+     * the remaining DSP parameters.
      */
     int format = AFMT_S16_LE;
 
+    /*
+     * Select format first to calculate the correct fragment size.
+     */
     if (ioctl(device, SNDCTL_DSP_SETFMT, &format) >= 0 &&
         format == AFMT_S16_LE)
     {
@@ -690,9 +724,6 @@ bool Sound::ConfigureDevice(int device,
         actualFormat = AFMT_U8;
     }
 
-    /*
-     * Configure the channel count.
-     */
     int channels = configuration.Channels;
 
     if (ioctl(device, SNDCTL_DSP_CHANNELS, &channels) < 0)
@@ -709,9 +740,6 @@ bool Sound::ConfigureDevice(int device,
         return false;
     }
 
-    /*
-     * Configure the sample rate.
-     */
     int sampleRate = configuration.SampleRate;
 
     if (ioctl(device, SNDCTL_DSP_SPEED, &sampleRate) < 0)
@@ -732,7 +760,59 @@ bool Sound::ConfigureDevice(int device,
     actualChannels = channels;
 
     /*
-     * Report the actual OSS playback queue configuration.
+     * Calculate fragment size in bytes.
+     * OSS fragment sizes must be powers of two.
+     */
+    const int bytesPerSample = actualFormat == AFMT_S16_LE ? 2 : 1;
+    const int bytesPerFrame = channels * bytesPerSample;
+    const int requestedBytes = FragmentFrames * bytesPerFrame;
+
+    int fragmentExponent = 0;
+    int fragmentBytes = 1;
+
+    while (fragmentBytes < requestedBytes)
+    {
+        fragmentBytes <<= 1;
+        ++fragmentExponent;
+    }
+
+    if (fragmentExponent < 4)
+        fragmentExponent = 4;
+
+    if (fragmentExponent > 15)
+        fragmentExponent = 15;
+
+    fragmentBytes = 1 << fragmentExponent;
+
+    int fragments = (FragmentCount << 16) | fragmentExponent;
+
+    printf("Sound: requesting OSS fragments:\n");
+    printf("Sound: fragment count %d.\n", FragmentCount);
+    printf("Sound: fragment size %d bytes.\n", fragmentBytes);
+
+    if (ioctl(device, SNDCTL_DSP_SETFRAGMENT, &fragments) < 0)
+    {
+        fprintf(stderr, "Sound: %s SETFRAGMENT failed: %s\n",
+                path, strerror(errno));
+        fprintf(stderr, "Sound: using driver default buffering.\n");
+    }
+    else
+    {
+        const int acceptedCount = (fragments >> 16) & 0xFFFF;
+        const int acceptedExponent = fragments & 0xFFFF;
+
+        printf("Sound: OSS accepted fragment configuration:\n");
+        printf("Sound: fragment count %d.\n", acceptedCount);
+
+        if (acceptedExponent >= 0 && acceptedExponent <= 15)
+        {
+            printf("Sound: fragment size %d bytes.\n",
+                   1 << acceptedExponent);
+        }
+    }
+
+    /*
+     * Report actual OSS playback buffer configuration.
      */
     audio_buf_info bufferInfo;
     memset(&bufferInfo, 0, sizeof(bufferInfo));
@@ -740,57 +820,49 @@ bool Sound::ConfigureDevice(int device,
     if (ioctl(device, SNDCTL_DSP_GETOSPACE, &bufferInfo) == 0)
     {
         printf("Sound: OSS output buffer diagnostics:\n");
-        printf("Sound: fragment size %d bytes.\n",
-               bufferInfo.fragsize);
-        printf("Sound: total fragments %d.\n",
-               bufferInfo.fragstotal);
-        printf("Sound: available fragments %d.\n",
-               bufferInfo.fragments);
-        printf("Sound: available bytes %d.\n",
-               bufferInfo.bytes);
+        printf("Sound: fragment size %d bytes.\n", bufferInfo.fragsize);
+        printf("Sound: total fragments %d.\n", bufferInfo.fragstotal);
+        printf("Sound: available fragments %d.\n", bufferInfo.fragments);
+        printf("Sound: available bytes %d.\n", bufferInfo.bytes);
 
-        if (bufferInfo.fragsize > 0 &&
-            bufferInfo.fragstotal > 0)
+        if (bufferInfo.fragsize > 0 && bufferInfo.fragstotal > 0)
         {
             const int64_t totalBytes =
                 static_cast<int64_t>(bufferInfo.fragsize) *
                 bufferInfo.fragstotal;
 
-            const int bytesPerFrame =
-                actualFormat == AFMT_S16_LE
-                    ? actualChannels * 2
-                    : actualChannels;
+            const int64_t totalFrames = totalBytes / bytesPerFrame;
+            const int64_t capacityMs = totalFrames * 1000 / actualRate;
 
-            if (bytesPerFrame > 0)
-            {
-                const int64_t frames =
-                    totalBytes / bytesPerFrame;
-
-                const int64_t latencyMs =
-                    frames * 1000 / actualRate;
-
-                printf("Sound: reported output capacity "
-                       "approximately %lld ms.\n",
-                       static_cast<long long>(latencyMs));
-            }
+            printf("Sound: total output capacity approximately %lld ms.\n",
+                   static_cast<long long>(capacityMs));
         }
     }
     else
     {
-        fprintf(stderr, "Sound: %s does not support GETOSPACE: %s\n",
+        fprintf(stderr, "Sound: %s GETOSPACE failed: %s\n",
                 path, strerror(errno));
     }
 
-    /*
-     * Report the OSS block size.
-     */
     int blockSize = 0;
 
     if (ioctl(device, SNDCTL_DSP_GETBLKSIZE, &blockSize) == 0)
     {
-        printf("Sound: OSS reported block size %d bytes.\n",
-               blockSize);
+        printf("Sound: OSS reported block size %d bytes.\n", blockSize);
     }
+
+#ifdef SNDCTL_DSP_GETODELAY
+    int queuedBytes = 0;
+
+    if (ioctl(device, SNDCTL_DSP_GETODELAY, &queuedBytes) == 0)
+    {
+        const int queuedMs =
+            queuedBytes * 1000 / (actualRate * bytesPerFrame);
+
+        printf("Sound: currently queued audio approximately %d ms.\n",
+               queuedMs);
+    }
+#endif
 
     return true;
 }

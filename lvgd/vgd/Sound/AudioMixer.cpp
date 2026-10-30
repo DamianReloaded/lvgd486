@@ -13,12 +13,13 @@ static void MemoryBarrier()
 
 static int VolumeToGain(int volume)
 {
-    int gain = (volume + 64) >> 7;
+    if (volume <= 0)
+        return 0;
 
-    if (gain > 256)
-        gain = 256;
+    if (volume >= 32767)
+        return 256;
 
-    return gain;
+    return (volume * 256 + 16383) / 32767;
 }
 
 static int ClampSample(int sample)
