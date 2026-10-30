@@ -16,9 +16,9 @@ No desktop environment to get in the way. No unnecessary layers. Just a focused 
 **Make your 486 a gaming machine.**
 
 - [I want to build the distro myself](https://damianreloaded101.blogspot.com/p/lvgd486-from-sources-how-to.html)
-- [Gaming Distro Installer](REPLACE-WITH-GAMING-ISO-URL)
-- [Development Distro Installer](REPLACE-WITH-DEVELOPMENT-ISO-URL)
-
+- [Development Install CD](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-cd.7z?download=)
+- [Development Install USB](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-usb.7z?download=)
+- [Install Instructions](https://damianreloaded101.blogspot.com/p/lgvd486-install.html)
 ---
 
 ## Contents
@@ -53,15 +53,17 @@ The target is the 486 and compatible systems, with an emphasis on understanding 
 
 The 486 occupies a compelling place in personal computing history. It offered enough processing power to move beyond the earliest era of PC gaming, enabling smoother animation, more complex game logic, richer sound, and increasingly ambitious graphics.
 
+What makes it especially interesting is how much it could accomplish with so little. A well-equipped 486 could deliver gaming experiences that felt remarkably close to those of dedicated 16-bit consoles, even though the underlying hardware worked in very different ways.
+
 A well-equipped 486 could deliver experiences that felt remarkably close to those of dedicated 16-bit consoles, despite their very different hardware architectures.
 
 The Super Nintendo and the 486 were not equivalent machines. The SNES had specialized graphics and sound hardware designed for games, while the PC offered a programmable processor, VGA graphics, and a wide variety of sound cards. Nevertheless, careful optimization made sophisticated 2D gameplay possible on a 486, with some ports and emulators also within reach.
 
 **The 486 was more capable than its limitations might suggest.**
 
-It is old enough to expose the relationship between software and hardware, yet capable enough to leave plenty of room for creativity. Performance is not something to take for granted. It is something to understand, earn, and optimize.
+That is what makes the platform so compelling. It is old enough to expose the relationship between software and hardware, but capable enough to leave plenty of room for creativity. Performance is not something to take for granted. It is something to understand, earn, and optimize.
 
-LVGD486 explores what can still be built on this hardware today.
+LVGD486 embraces that challenge. The goal is not simply to preserve old software or recreate the limitations of the past. It is to explore what can still be built on this hardware today, with a dedicated Linux-based environment for developing and running games on the 486 and compatible systems.
 
 ## 03. Why Linux?
 
@@ -156,7 +158,7 @@ The goal is to turn a surviving 486 into a dedicated gaming machine: boot the co
 
 **Choose this image to run LVGD486 games on real hardware or experiment with the system as a gaming platform.**
 
-[Download Gaming ISO](REPLACE-WITH-GAMING-ISO-URL)
+[Download Gaming ISO](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-cd.7z?download=)
 
 ### ISO-02: LVGD486 Development Environment
 
@@ -166,7 +168,8 @@ It is intended to include the tools needed to customize the kernel, rebuild LVGD
 
 **Choose this image to develop games, customize LVGD486, or work on the operating system itself.**
 
-[Download Development ISO](REPLACE-WITH-DEVELOPMENT-ISO-URL)
+[Download Development ISO](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-cd.7z?download=)
+[Download Development USB](https://github.com/DamianReloaded/lvgd486/raw/refs/heads/main/InstallMedia/lvgd486-installer-usb.7z?download=)
 
 Documentation will accompany both images to explain their purpose and help you get started.
 
