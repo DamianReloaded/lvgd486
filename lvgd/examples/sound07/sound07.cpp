@@ -1,10 +1,13 @@
-#include "../../vgd/Display/DisplayMode13h.hpp"
+#include "../../vgd/Util/UniquePtr.hpp"
 #include "../../vgd/Input/Keyboard.hpp"
 #include "../../vgd/Font/BmpFont.hpp"
 #include "../../vgd/Font/BmpFont01.hpp"
+#include "../../vgd/Sound/MidiPcm.hpp"
 #include "../../vgd/Sound/MidiSong.hpp"
 #include "../../vgd/Sound/MidiFile.hpp"
 #include "../../vgd/Sound/MidiPlayer.hpp"
+#include "../../vgd/Sound/AudioMixer.hpp"
+#include "../../vgd/Display/DisplayMode13h.hpp"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -264,7 +267,9 @@ static int RunGame()
     MidiSong song;
     MidiFile midiFile;
     MidiPlayer player;
-    Midi midi;
+    Sound sound;
+    AudioMixer mixer;
+    vgd::UniquePtr<vgd::IMidi> midi = vgd::UniquePtr<vgd::Midi>().MakeNewInstance();
 
     bool displayReady = false;
     bool keyboardReady = false;
@@ -304,15 +309,62 @@ static int RunGame()
             song.GetDurationSeconds(),
             song.GetTempo());
 
-    if (!midi.Initialize("/dev/sound/sequencer")) {
-        fprintf(stderr,
-                "SOUND07: MIDI output initialization failed.\n");
+    Sound::Configuration configuration;
+    configuration.SampleRate = 22050;
+    configuration.Channels = 2;
+    configuration.BufferFrames = 512;
+
+    if (!sound.Initialize(configuration))
+    {
+        fprintf(stderr, "SOUND07: could not initialize audio device");
         return 1;
     }
 
-    if (!player.Initialize(&midi)) {
+    if (!mixer.Initialize(sound.GetSampleRate(), sound.GetChannels()))
+    {
+        sound.Shutdown();
+
+        fprintf(stderr, "SOUND07: could not initialize audio mixer");
+        return 1;
+    }
+
+    if (!mixer.Attach(sound))
+    {
+        sound.Shutdown();
+
+        fprintf(stderr, "SOUND07: could not attach audio mixer");
+        return 1;
+    }
+
+    if (!midi->Initialize("/dev/sound/sequencer")) {
+        fprintf(stderr, "SOUND07: MIDI output initialization failed. Falling back to MidiPcm\n");
+
+        midi = vgd::UniquePtr<vgd::MidiPcm>().MakeNewInstance();
+
+        if (!midi->Initialize(0))
+        {
+            fprintf(stderr, "SOUND07: MIDIPcm initialization failed.\n");
+            return 1;
+        }
+
+        midi->SetMixer(&mixer);
+    }
+
+    midi->SetMasterVolume(32000);
+
+    mixer.Play();
+
+    if (!sound.StartWorker())
+    {
         fprintf(stderr,
-                "SOUND07: MIDI player initialization failed.\n");
+                "SOUND07: audio worker could not start.\n");
+        result = 1;
+        goto cleanup;
+    }
+
+    if (!player.Initialize(midi.Get())) {
+        fprintf(stderr,"SOUND07: MIDI player initialization failed.\n");
+        midi->Shutdown();
         return 1;
     }
 
@@ -391,7 +443,7 @@ cleanup:
     StopRequested = 1;
     player.Shutdown();
 
-    midi.Shutdown(); 
+    midi->Shutdown(); 
 
     if (keyboardReady)
         keyboard.Shutdown();

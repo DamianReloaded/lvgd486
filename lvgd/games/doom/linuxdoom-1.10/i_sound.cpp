@@ -18,9 +18,11 @@
 #include "../../vgd/Sound/Sound.hpp"
 #include "../../vgd/Sound/AudioMixer.hpp"
 #include "../../vgd/Sound/Midi.hpp"
+#include "../../vgd/Sound/MidiPcm.hpp"
 #include "../../vgd/Sound/MidiSong.hpp"
 #include "../../vgd/Sound/MidiPlayer.hpp"
 #include "../../vgd/Sound/MusFile.hpp"
+#include "../../vgd/Util/UniquePtr.hpp"
 
 extern "C"
 {
@@ -112,7 +114,7 @@ static DoomSoundChannel SoundChannels[DoomChannelCount];
 
 static unsigned int NextSoundHandle = 100;
 
-static vgd::Midi MusicOutput;
+static vgd::UniquePtr<vgd::IMidi> MusicOutput;
 static vgd::MidiPlayer MusicPlayer;
 
 static DoomMusicSong MusicSongs[DoomMusicSongCount];
@@ -336,7 +338,7 @@ static void StopChannel(int channel)
 
     if (state.Active && SoundInitialized)
     {
-        Mixer.ScheduleStop(Mixer.GetMixedFramePosition(), channel);
+        Mixer.ScheduleStop(Mixer.GetMixedFramePosition(), channel, false);
     }
 
     state.Active = false;
@@ -552,6 +554,7 @@ static int StartSoundOnChannel(
             playbackRate,
             mixerLeftVolume,
             mixerRightVolume,
+            false, 
             false))
     {
         return -1;
@@ -631,25 +634,10 @@ static DoomMusicSong* AllocateMusicSong()
 static void ApplyMusicVolume()
 {
     if (!MusicInitialized)
-    {
         return;
-    }
 
-    int volume = snd_MusicVolume;
-
-    if (volume < 0)
-    {
-        volume = 0;
-    }
-    else if (volume > 127)
-    {
-        volume = 127;
-    }
-
-    for (int channel = 0; channel < 16; ++channel)
-    {
-        MusicOutput.ControlChange(channel, 7, volume);
-    }
+    const int volume = (snd_MusicVolume * 127) / 15;
+    MusicOutput->SetMasterVolume(volume);
 }
 
 static void StopMusicPlayback()
@@ -800,8 +788,6 @@ void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
             return;
         }
 
-        StopChannel(i);
-
         int leftVolume;
         int rightVolume;
 
@@ -809,35 +795,23 @@ void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
 
         int playbackRate = CalculatePlaybackRate(soundId, pitch);
 
-        DoomSoundSample& sample = SoundSamples[soundId];
-
-        if (!Mixer.SchedulePlay(
+        if (!Mixer.ScheduleUpdate(
                 currentFrame,
                 i,
-                sample.Samples,
-                sample.SampleFrames,
                 playbackRate,
                 ConvertDoomVolume(leftVolume),
                 ConvertDoomVolume(rightVolume),
-                false))
+                false
+            )
+            )
         {
             return;
         }
 
-        uint64_t durationFrames =
-            (sample.SampleFrames * SoundOutput.GetSampleRate() +
-             static_cast<uint64_t>(playbackRate) - 1) /
-            static_cast<uint64_t>(playbackRate);
-
-        state.Handle = handle;
-        state.SoundId = soundId;
-        state.StartTic = gametic;
-        state.EndFrame = currentFrame + durationFrames;
         state.Volume = vol;
         state.Separation = sep;
         state.Pitch = pitch;
         state.SourceRate = playbackRate;
-        state.Active = true;
 
         return;
     }
@@ -860,7 +834,7 @@ void I_InitSound()
     Sound::Configuration configuration;
 
     configuration.SampleRate = DoomDefaultSampleRate;
-    configuration.Channels = 1;
+    configuration.Channels = 2;
     configuration.BufferFrames = 512;
 
     if (!SoundOutput.Initialize(configuration))
@@ -869,7 +843,7 @@ void I_InitSound()
         return;
     }
 
-    if (!Mixer.Initialize(SoundOutput.GetSampleRate(), 1))
+    if (!Mixer.Initialize(SoundOutput.GetSampleRate(), SoundOutput.GetChannels()))
     {
         SoundOutput.Shutdown();
 
@@ -953,18 +927,29 @@ void I_InitMusic(void)
         return;
     }
 
-    if (!MusicOutput.Initialize("/dev/sound/sequencer"))
+    MusicOutput = vgd::UniquePtr<vgd::Midi>().MakeNewInstance();
+
+    if (!MusicOutput->Initialize("/dev/sound/sequencer"))
     {
-        fprintf(stderr, "Doom music: MIDI initialization failed\n");
-        return;
+        fprintf(stderr, "Doom music: MIDI initialization failed. Falling back to MidiPcm\n");
+        
+        MusicOutput = vgd::UniquePtr<vgd::MidiPcm>().MakeNewInstance();
+
+        if (!MusicOutput->Initialize(0))
+        {
+            fprintf(stderr, "Doom music: MIDIPcm initialization failed.\n");
+            return;
+        }
+
+        MusicOutput->SetMixer(&Mixer);
     }
 
     fprintf(stderr, "Doom music: MIDI device initialized\n");
 
-    if (!MusicPlayer.Initialize(&MusicOutput))
+    if (!MusicPlayer.Initialize(MusicOutput.Get()))
     {
         fprintf(stderr, "Doom music: MIDI player initialization failed\n");
-        MusicOutput.Shutdown();
+        MusicOutput->Shutdown();
         return;
     }
 
@@ -972,6 +957,8 @@ void I_InitMusic(void)
     MusicPlaybackActive = false;
     MusicPlaybackLooping = false;
     MusicCurrentHandle = 0;
+
+    ApplyMusicVolume();
 
     fprintf(stderr, "Doom music: initialization complete\n");
 }
@@ -986,7 +973,7 @@ void I_ShutdownMusic(void)
     StopMusicPlayback();
 
     MusicPlayer.Shutdown();
-    MusicOutput.Shutdown();
+    MusicOutput->Shutdown();
 
     for (int i = 0; i < DoomMusicSongCount; ++i)
     {

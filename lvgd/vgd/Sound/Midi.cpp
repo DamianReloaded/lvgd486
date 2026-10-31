@@ -19,8 +19,11 @@ namespace vgd
     Midi::Midi()
         : fd(-1),
         deviceNumber(0),
-        initialized(false)
+        initialized(false),
+        m_MasterVolume(127)
     {
+        for (int i = 0; i < 16; ++i)
+            m_ChannelVolumes[i] = 100;
     }
 
     Midi::~Midi()
@@ -129,25 +132,48 @@ namespace vgd
         return true;
     }
 
-    bool Midi::SendMessage(
-        unsigned char status,
-        unsigned char data1,
-        unsigned char data2)
+    bool Midi::SendMessage(unsigned char status, unsigned char data1, unsigned char data2)
     {
-        if (!SendByte(status))
-            return false;
-
-        if (!SendByte(data1))
-            return false;
-
-        // Program Change and Channel Pressure use one data byte.
-        if ((status & 0xF0) == 0xC0 ||
-            (status & 0xF0) == 0xD0)
+        if ((status & 0xF0) == 0xB0 && data1 == 7)
         {
-            return true;
+            const int channel = status & 0x0F;
+            m_ChannelVolumes[channel] = data2;
+
+            const int volume = (data2 * m_MasterVolume) / 127;
+            return SendRawMessage(status, data1, (unsigned char)volume);
         }
 
-        return SendByte(data2);
+        return SendRawMessage(status, data1, data2);
+    }
+
+    bool Midi::SetMasterVolume(int volume)
+    {
+        if (volume < 0)
+            volume = 0;
+        else if (volume > 127)
+            volume = 127;
+
+        m_MasterVolume = volume;
+
+        if (!initialized)
+            return true;
+
+        bool success = true;
+
+        for (int channel = 0; channel < 16; ++channel)
+        {
+            const int scaledVolume = (m_ChannelVolumes[channel] * m_MasterVolume) / 127;
+
+            if (!SendRawMessage(
+                    (unsigned char)(0xB0 | channel),
+                    7,
+                    (unsigned char)scaledVolume))
+            {
+                success = false;
+            }
+        }
+
+        return success;
     }
 
     // -----------------------------------------------------------------------------
@@ -221,5 +247,19 @@ namespace vgd
         fd = -1;
         deviceNumber = 0;
         initialized = false;
+    }
+
+    bool Midi::SendRawMessage(unsigned char status, unsigned char data1, unsigned char data2)
+    {
+        if (!SendByte(status))
+            return false;
+
+        if (!SendByte(data1))
+            return false;
+
+        if ((status & 0xF0) == 0xC0 || (status & 0xF0) == 0xD0)
+            return true;
+
+        return SendByte(data2);
     }
 }

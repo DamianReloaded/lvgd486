@@ -499,7 +499,7 @@ bool Sound::ShouldStopWorker()
 
 bool Sound::GenerateBuffer(AudioBuffer& buffer)
 {
-    int16_t samples[MaximumBufferFrames];
+    int16_t samples[MaximumBufferFrames * MaximumChannels];
 
     uint32_t phaseIncrement = 0;
     PcmCallback pcmCallback = NULL;
@@ -530,27 +530,31 @@ bool Sound::GenerateBuffer(AudioBuffer& buffer)
                 m_Phase += phaseIncrement;
             }
 
-            samples[frame] = sample;
+            for (int channel = 0; channel < m_Channels; ++channel)
+            {
+                samples[frame * m_Channels + channel] = sample;
+            }
         }
     }
 
     if (!ConvertPcmToOutput(buffer, samples))
+    {
         return false;
+    }
 
     buffer.Ready = true;
     return true;
 }
 
-bool Sound::ConvertPcmToOutput(AudioBuffer& buffer,
-                               const int16_t* samples)
+bool Sound::ConvertPcmToOutput(AudioBuffer& buffer, const int16_t* samples)
 {
+    const size_t sampleCount =
+        static_cast<size_t>(m_BufferFrames) * m_Channels;
+
     const size_t bytesPerSample =
         m_SampleFormat == FormatSigned16 ? 2 : 1;
 
-    const size_t byteCount =
-        static_cast<size_t>(m_BufferFrames) *
-        static_cast<size_t>(m_Channels) *
-        bytesPerSample;
+    const size_t byteCount = sampleCount * bytesPerSample;
 
     if (byteCount > sizeof(buffer.Bytes))
     {
@@ -560,32 +564,22 @@ bool Sound::ConvertPcmToOutput(AudioBuffer& buffer,
 
     if (m_SampleFormat == FormatSigned16)
     {
-        int16_t* output =
-            reinterpret_cast<int16_t*>(buffer.Bytes);
-
-        for (int frame = 0; frame < m_BufferFrames; ++frame)
-        {
-            for (int channel = 0; channel < m_Channels; ++channel)
-                *output++ = samples[frame];
-        }
+        memcpy(buffer.Bytes, samples, sampleCount * sizeof(int16_t));
     }
     else
     {
         uint8_t* output = buffer.Bytes;
 
-        for (int frame = 0; frame < m_BufferFrames; ++frame)
+        for (size_t i = 0; i < sampleCount; ++i)
         {
-            int value = static_cast<int>(samples[frame]) / 256 + 128;
+            int value = static_cast<int>(samples[i]) / 256 + 128;
 
             if (value < 0)
                 value = 0;
             else if (value > 255)
                 value = 255;
 
-            const uint8_t sample = static_cast<uint8_t>(value);
-
-            for (int channel = 0; channel < m_Channels; ++channel)
-                *output++ = sample;
+            *output++ = static_cast<uint8_t>(value);
         }
     }
 

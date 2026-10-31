@@ -1,5 +1,3 @@
-#ifdef CUSTOM_DOS_ALLOCATOR
-
 #include <stddef.h>
 #include <stdlib.h>
 
@@ -46,5 +44,3 @@ void operator delete[](void *pointer, size_t)
 {
     free(pointer);
 }
-
-#endif

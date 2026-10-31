@@ -1,22 +1,3 @@
-#pragma once 
-// -----------------------------------------------------------------------------
-// Midi
-//
-// Reusable low-level MIDI output class.
-//
-// Responsibilities:
-//   - Open and close an OSS sequencer device.
-//   - Detect available raw MIDI ports.
-//   - Send MIDI messages through 4-byte SEQ_MIDIPUTC records.
-//   - Provide helpers for common MIDI channel messages.
-//   - Silence active notes during shutdown.
-//
-// This class does NOT own song data, timing, scheduling, or graphics.
-//
-// Note: the selected OSS MIDI port must have a synthesizer or MIDI destination
-// capable of producing audible sound. A raw MIDI port alone is not a synth.
-// -----------------------------------------------------------------------------
-
 #pragma once
 #include "IMidi.hpp"
 
@@ -31,6 +12,7 @@ namespace vgd
     private:
         Midi(const Midi&);
         Midi& operator=(const Midi&);
+        bool SendRawMessage(unsigned char status, unsigned char data1, unsigned char data2);
 
     public:
         virtual bool Initialize(const char* path);
@@ -45,6 +27,8 @@ namespace vgd
         virtual bool ProgramChange(int channel, int program);
         virtual bool ControlChange(int channel, int control, int value);
 
+        virtual bool SetMasterVolume(int volume);
+
         virtual bool SilenceAll();
         virtual void Shutdown();
 
@@ -52,5 +36,7 @@ namespace vgd
         int fd;
         int deviceNumber;
         bool initialized;
+        int m_ChannelVolumes[16];
+        int m_MasterVolume;
     };
 }

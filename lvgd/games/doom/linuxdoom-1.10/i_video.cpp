@@ -11,6 +11,8 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <ctype.h>
 
 #include "DisplayMode13h.hpp"
 #include "Keyboard.hpp"
@@ -24,7 +26,21 @@ extern "C"
     #include "m_argv.h"
     #include "d_main.h"
     #include "doomdef.h"
+
+    #include "hu_stuff.h"
+    #include "m_swap.h"
+
 }
+
+extern patch_t* hu_font[HU_FONTSIZE];
+
+static bool ShowFps = true;
+static int CurrentFps = 0;
+static int FpsFrameCount = 0;
+static int FpsLastTime = 0;
+static boolean FpsTimerInitialized = false;
+
+extern "C" void I_DrawFPS(int fps);
 
 typedef vgd::Keyboard KeyboardDevice;
 typedef vgd::Mouse MouseDevice;
@@ -214,6 +230,29 @@ static void ProcessMouseEvents(void)
     }
 }
 
+static void UpdateFPS(void)
+{
+    int currentTime = I_GetTime();
+
+    if (!FpsTimerInitialized)
+    {
+        FpsLastTime = currentTime;
+        FpsFrameCount = 0;
+        FpsTimerInitialized = true;
+    }
+
+    ++FpsFrameCount;
+
+    int elapsed = currentTime - FpsLastTime;
+
+    if (elapsed >= TICRATE)
+    {
+        CurrentFps = (FpsFrameCount * TICRATE) / elapsed;
+        FpsFrameCount = 0;
+        FpsLastTime = currentTime;
+    }
+}
+
 extern "C" void I_ShutdownGraphics(void)
 {
     if (MouseInitialized)
@@ -262,6 +301,12 @@ extern "C" void I_FinishUpdate(void)
 {
     if (!GraphicsInitialized || !screens[0])
         return;
+
+    if (ShowFps)
+    {
+        UpdateFPS();
+        I_DrawFPS(CurrentFps);
+    }
 
     unsigned char* destination = Display.GetBackBuffer();
     int pitch = Display.GetBackBufferPitch();
@@ -319,6 +364,11 @@ extern "C" void I_InitGraphics(void)
         return;
     }
 
+    CurrentFps = 0;
+    FpsFrameCount = 0;
+    FpsLastTime = 0;
+    FpsTimerInitialized = false;    
+
     GraphicsInitialized = true;
 
     if (!KeyboardInput.Initialize())
@@ -367,4 +417,30 @@ extern "C" void I_InitGraphics(void)
 
     screens[0] = VideoBuffer;
     MouseButtonState = 0;
+}
+
+extern "C" void I_DrawFPS(int fps)
+{
+    char text[4];
+    int x = SCREENWIDTH - 4 - 9;
+    int y = 4;
+
+    if (fps > 999)
+        fps = 999;
+
+    sprintf(text, "%d", fps);
+
+    for (int i = 0; text[i]; ++i)
+    {
+        int c = toupper((unsigned char)text[i]) - HU_FONTSTART;
+
+        if (c < 0 || c >= HU_FONTSIZE || !hu_font[c])
+        {
+            x += 3;
+            continue;
+        }
+
+        V_DrawPatchDirect(x, y, 0, hu_font[c]);
+        x += 3;
+    }
 }

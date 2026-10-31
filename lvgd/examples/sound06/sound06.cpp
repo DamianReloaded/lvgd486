@@ -338,6 +338,7 @@ static bool ScheduleSongAhead(
                 pitchedSampleRate,
                 event.Volume,
                 event.Volume,
+                false,
                 false))
         {
             // Do not skip an event if the queue is temporarily full.

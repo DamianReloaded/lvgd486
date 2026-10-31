@@ -14,7 +14,7 @@ class AudioMixer
 public:
     enum
     {
-        VoiceCount = 8,
+        VoiceCount = 32,
         EventQueueCapacity = 256
     };
 
@@ -37,9 +37,10 @@ public:
         int sourceRate,
         int leftVolume,
         int rightVolume,
-        bool loop);
+        bool loop,
+        bool isInstrument);
 
-    bool ScheduleStop(uint64_t outputFrame, int voice);
+    bool ScheduleStop(uint64_t outputFrame, int voice, bool isInstrument);
 
     bool ScheduleOscillator(
         uint64_t outputFrame,
@@ -53,6 +54,9 @@ public:
         uint64_t durationFrames,
         int volume);
 
+	bool ScheduleUpdate(uint64_t outputFrame, int voice, int sourceRate,
+						int leftVolume, int rightVolume, bool isInstrument);
+
     bool PlaySample(
         int voice,
         const int16_t* samples,
@@ -60,23 +64,28 @@ public:
         int sourceRate,
         int leftVolume,
         int rightVolume,
-        bool loop);
+        bool loop,
+        bool isInstrument);
 
-    bool StopVoice(int voice);
+    bool StopVoice(int voice, bool isInstrument);
 
     uint64_t GetMixedFramePosition() const;
+
+    void SetUsesPcmMidi(bool enabled);
 
 private:
     AudioMixer(const AudioMixer&);
     AudioMixer& operator=(const AudioMixer&);
 
-    enum EventType
-    {
-        EventPlay,
-        EventStop,
-        EventOscillator,
-        EventNoiseHit
-    };
+	enum EventType
+	{
+		EventPlay,
+		EventStop,
+		EventUpdate,
+		EventOscillator,
+		EventNoiseHit
+	};
+
 
     enum VoiceType
     {
@@ -134,6 +143,7 @@ private:
         int LeftVolume;
         int RightVolume;
         bool Loop;
+        bool IsInstrument;
 
         int Frequency;
         int Volume;
@@ -157,6 +167,8 @@ private:
     void Mix(int16_t* output, int frames);
     void PublishFramePosition(uint64_t frame);
 
+    bool MapVoice(int logicalVoice, bool isInstrument, int& physicalVoice) const;
+
     int m_SampleRate;
     int m_OutputChannels;
     bool m_Initialized;
@@ -176,6 +188,8 @@ private:
     volatile uint32_t m_FrameSequence;
     volatile uint32_t m_PublishedFrameLow;
     volatile uint32_t m_PublishedFrameHigh;
+
+    bool m_UsesPcmMidi;
 };
 
 } // namespace vgd

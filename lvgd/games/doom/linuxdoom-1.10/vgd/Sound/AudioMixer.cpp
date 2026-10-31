@@ -1,4 +1,3 @@
-
 #include "AudioMixer.hpp"
 
 #include <string.h>
@@ -44,7 +43,8 @@ AudioMixer::AudioMixer()
       m_MixedFramePosition(0),
       m_FrameSequence(0),
       m_PublishedFrameLow(0),
-      m_PublishedFrameHigh(0)
+      m_PublishedFrameHigh(0),
+      m_UsesPcmMidi(false)
 {
     memset(m_Voices, 0, sizeof(m_Voices));
     memset(m_Events, 0, sizeof(m_Events));
@@ -83,7 +83,6 @@ bool AudioMixer::Initialize(int sampleRate, int outputChannels)
     for (int i = 0; i < VoiceCount; ++i)
     {
         m_Voices[i].Type = VoiceSilent;
-
         m_Voices[i].NoiseState =
             0x13579BDFU ^
             (static_cast<uint32_t>(i) * 0x9E3779B9U);
@@ -124,6 +123,11 @@ void AudioMixer::TogglePlayback()
 bool AudioMixer::IsPlaying() const
 {
     return m_Initialized && m_Playing != 0;
+}
+
+void AudioMixer::SetUsesPcmMidi(bool enabled)
+{
+    m_UsesPcmMidi = enabled;
 }
 
 void AudioMixer::PublishFramePosition(uint64_t frame)
@@ -169,10 +173,7 @@ uint64_t AudioMixer::GetMixedFramePosition() const
 bool AudioMixer::QueueEvent(const Event& event)
 {
     const uint32_t head = m_EventHead;
-
-    const uint32_t next =
-        (head + 1U) & (EventQueueCapacity - 1U);
-
+    const uint32_t next = (head + 1U) & (EventQueueCapacity - 1U);
     const uint32_t tail = m_EventTail;
 
     if (next == tail)
@@ -198,15 +199,18 @@ bool AudioMixer::SchedulePlay(
     int sourceRate,
     int leftVolume,
     int rightVolume,
-    bool loop)
+    bool loop,
+    bool isInstrument)
 {
+    int physicalVoice;
+
     if (!m_Initialized ||
-        voice < 0 || voice >= VoiceCount ||
         samples == NULL || sampleFrames == 0 ||
         sampleFrames > 0xFFFFFFFFULL ||
         sourceRate <= 0 ||
         leftVolume < 0 || leftVolume > 32767 ||
-        rightVolume < 0 || rightVolume > 32767)
+        rightVolume < 0 || rightVolume > 32767 ||
+        !MapVoice(voice, isInstrument, physicalVoice))
     {
         return false;
     }
@@ -216,31 +220,31 @@ bool AudioMixer::SchedulePlay(
 
     event.Frame = outputFrame;
     event.Type = EventPlay;
-    event.VoiceIndex = voice;
+    event.VoiceIndex = physicalVoice;
     event.Samples = samples;
     event.SampleFrames = sampleFrames;
     event.SourceRate = sourceRate;
     event.LeftVolume = leftVolume;
     event.RightVolume = rightVolume;
     event.Loop = loop;
+    event.IsInstrument = isInstrument;
 
     return QueueEvent(event);
 }
 
-bool AudioMixer::ScheduleStop(uint64_t outputFrame, int voice)
+bool AudioMixer::ScheduleStop(uint64_t outputFrame, int voice, bool isInstrument)
 {
-    if (!m_Initialized ||
-        voice < 0 || voice >= VoiceCount)
-    {
+    int physicalVoice;
+
+    if (!m_Initialized || !MapVoice(voice, isInstrument, physicalVoice))
         return false;
-    }
 
     Event event;
     memset(&event, 0, sizeof(event));
 
     event.Frame = outputFrame;
     event.Type = EventStop;
-    event.VoiceIndex = voice;
+    event.VoiceIndex = physicalVoice;
 
     return QueueEvent(event);
 }
@@ -305,7 +309,8 @@ bool AudioMixer::PlaySample(
     int sourceRate,
     int leftVolume,
     int rightVolume,
-    bool loop)
+    bool loop,
+    bool isInstrument)
 {
     return SchedulePlay(
         GetMixedFramePosition(),
@@ -315,12 +320,13 @@ bool AudioMixer::PlaySample(
         sourceRate,
         leftVolume,
         rightVolume,
-        loop);
+        loop,
+        isInstrument);
 }
 
-bool AudioMixer::StopVoice(int voice)
+bool AudioMixer::StopVoice(int voice, bool isInstrument)
 {
-    return ScheduleStop(GetMixedFramePosition(), voice);
+    return ScheduleStop(GetMixedFramePosition(), voice, isInstrument);
 }
 
 void AudioMixer::ApplyEvent(const Event& event)
@@ -358,8 +364,7 @@ void AudioMixer::ApplyEvent(const Event& event)
     {
         voice.Type = VoiceSample;
         voice.Samples = event.Samples;
-        voice.SampleFrames =
-            static_cast<uint32_t>(event.SampleFrames);
+        voice.SampleFrames = static_cast<uint32_t>(event.SampleFrames);
 
         voice.PositionFrame = 0;
         voice.PositionFraction = 0;
@@ -368,11 +373,8 @@ void AudioMixer::ApplyEvent(const Event& event)
             (static_cast<uint64_t>(event.SourceRate) << 32) /
             static_cast<uint32_t>(m_SampleRate);
 
-        voice.IncrementFrame =
-            static_cast<uint32_t>(increment >> 32);
-
-        voice.IncrementFraction =
-            static_cast<uint32_t>(increment);
+        voice.IncrementFrame = static_cast<uint32_t>(increment >> 32);
+        voice.IncrementFraction = static_cast<uint32_t>(increment);
 
         if (voice.IncrementFrame == 0 &&
             voice.IncrementFraction == 0)
@@ -433,9 +435,7 @@ void AudioMixer::ApplyEvent(const Event& event)
         voice.Loop = false;
 
         voice.NoiseElapsed = 0;
-        voice.NoiseDuration =
-            static_cast<uint32_t>(event.DurationFrames);
-
+        voice.NoiseDuration = static_cast<uint32_t>(event.DurationFrames);
         voice.NoiseVolume = event.Volume;
 
         const uint32_t duration = voice.NoiseDuration;
@@ -451,6 +451,30 @@ void AudioMixer::ApplyEvent(const Event& event)
 
         if (voice.NoiseState == 0)
             voice.NoiseState = 0x13579BDFU;
+
+        return;
+    }
+
+    if (event.Type == EventUpdate)
+    {
+        if (voice.Type != VoiceSample)
+            return;
+
+        const uint64_t increment =
+            (static_cast<uint64_t>(event.SourceRate) << 32) /
+            static_cast<uint32_t>(m_SampleRate);
+
+        voice.IncrementFrame = static_cast<uint32_t>(increment >> 32);
+        voice.IncrementFraction = static_cast<uint32_t>(increment);
+
+        if (voice.IncrementFrame == 0 &&
+            voice.IncrementFraction == 0)
+        {
+            voice.IncrementFraction = 1;
+        }
+
+        voice.LeftGain = VolumeToGain(event.LeftVolume);
+        voice.RightGain = VolumeToGain(event.RightVolume);
 
         return;
     }
@@ -475,17 +499,12 @@ void AudioMixer::ProcessEvents(uint64_t frame)
         ApplyEvent(event);
 
         MemoryBarrier();
-
-        m_EventTail =
-            (tail + 1U) & (EventQueueCapacity - 1U);
+        m_EventTail = (tail + 1U) & (EventQueueCapacity - 1U);
     }
 }
 
 // Called only for voices classified as VoiceSample by Mix().
-//
-// Do not add a VoiceType check here: Mix() builds the sample-voice
-// list once per span. A voice may finish within that span, so this
-// function still checks the sample pointer and frame count.
+// A voice may finish during a span and remain in the cached pointer list.
 int AudioMixer::GetSampleActive(Voice& voice)
 {
     const int16_t* const samples = voice.Samples;
@@ -520,9 +539,7 @@ int AudioMixer::GetSampleActive(Voice& voice)
     const uint32_t incrementFraction = voice.IncrementFraction;
     const uint32_t incrementFrame = voice.IncrementFrame;
 
-    // Exact integer source/output rate ratios have no fractional
-    // increment. They need neither interpolation nor fractional
-    // position updates. For example, 22050 -> 11025 advances by 2.
+    // Exact integer source/output rate ratios need no interpolation.
     if (incrementFraction == 0)
     {
         const uint32_t remaining = sampleFrames - position;
@@ -538,11 +555,8 @@ int AudioMixer::GetSampleActive(Voice& voice)
         else
         {
             const uint32_t excess = incrementFrame - remaining;
-
             voice.PositionFrame =
-                (excess < sampleFrames)
-                    ? excess
-                    : excess % sampleFrames;
+                (excess < sampleFrames) ? excess : excess % sampleFrames;
         }
 
         return sampleA;
@@ -588,11 +602,8 @@ int AudioMixer::GetSampleActive(Voice& voice)
     else
     {
         const uint32_t excess = advance - remaining;
-
         voice.PositionFrame =
-            (excess < sampleFrames)
-                ? excess
-                : excess % sampleFrames;
+            (excess < sampleFrames) ? excess : excess % sampleFrames;
     }
 
     return interpolated;
@@ -625,15 +636,11 @@ int AudioMixer::GetNoiseSample(Voice& voice)
         return 0;
     }
 
-    voice.NoiseState =
-        voice.NoiseState * 1664525U + 1013904223U;
+    voice.NoiseState = voice.NoiseState * 1664525U + 1013904223U;
 
     const int volume = voice.NoiseVolume - voice.NoiseReduction;
-
     const int sample =
-        (voice.NoiseState & 0x80000000U)
-        ? -volume
-        : volume;
+        (voice.NoiseState & 0x80000000U) ? -volume : volume;
 
     voice.NoiseReduction += voice.NoiseReductionStep;
 
@@ -658,10 +665,7 @@ int AudioMixer::GetNoiseSample(Voice& voice)
     return sample;
 }
 
-void AudioMixer::MixCallback(
-    void* context,
-    int16_t* output,
-    int frames)
+void AudioMixer::MixCallback(void* context, int16_t* output, int frames)
 {
     AudioMixer* mixer = static_cast<AudioMixer*>(context);
 
@@ -686,7 +690,6 @@ void AudioMixer::Mix(int16_t* output, int frames)
         ProcessEvents(framePosition);
 
         int spanFrames = frames - framesMixed;
-
         const uint32_t tail = m_EventTail;
 
         MemoryBarrier();
@@ -825,6 +828,58 @@ void AudioMixer::Mix(int16_t* output, int frames)
 
     m_MixedFramePosition = framePosition;
     PublishFramePosition(framePosition);
+}
+
+bool AudioMixer::ScheduleUpdate(
+    uint64_t outputFrame,
+    int voice,
+    int sourceRate,
+    int leftVolume,
+    int rightVolume,
+    bool isInstrument)
+{
+    int physicalVoice;
+
+    if (!m_Initialized ||
+        sourceRate <= 0 ||
+        leftVolume < 0 || leftVolume > 32767 ||
+        rightVolume < 0 || rightVolume > 32767 ||
+        !MapVoice(voice, isInstrument, physicalVoice))
+    {
+        return false;
+    }
+
+    Event event;
+    memset(&event, 0, sizeof(event));
+
+    event.Frame = outputFrame;
+    event.Type = EventUpdate;
+    event.VoiceIndex = physicalVoice;
+    event.SourceRate = sourceRate;
+    event.LeftVolume = leftVolume;
+    event.RightVolume = rightVolume;
+
+    return QueueEvent(event);
+}
+
+bool AudioMixer::MapVoice(int logicalVoice, bool isInstrument, int& physicalVoice) const
+{
+    if (m_UsesPcmMidi)
+    {
+        const int split = VoiceCount / 2;
+
+        if (logicalVoice < 0 || logicalVoice >= split)
+            return false;
+
+        physicalVoice = logicalVoice + (isInstrument ? 0 : split);
+        return true;
+    }
+
+    if (logicalVoice < 0 || logicalVoice >= VoiceCount)
+        return false;
+
+    physicalVoice = logicalVoice;
+    return true;
 }
 
 } // namespace vgd

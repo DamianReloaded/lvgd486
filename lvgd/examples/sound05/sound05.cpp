@@ -471,7 +471,8 @@ static bool ScheduleWav(
         wav.GetSampleRate(),
         volume,
         volume,
-        true);
+        true,
+        false);
 }
 
 static bool ScheduleWavAtFrame(
@@ -488,7 +489,8 @@ static bool ScheduleWavAtFrame(
         wav.GetSampleRate(),
         volume,
         volume,
-        true);
+        true,
+        false);
 }
 
 // -----------------------------------------------------------------------------

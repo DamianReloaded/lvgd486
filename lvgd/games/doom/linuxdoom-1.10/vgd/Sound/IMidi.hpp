@@ -1,8 +1,12 @@
 #ifndef VGD_IMIDI_HPP
 #define VGD_IMIDI_HPP
 
+#include <cstdint>
+
 namespace vgd
 {
+    class AudioMixer;
+
     class IMidi
     {
     public:
@@ -22,6 +26,12 @@ namespace vgd
 
         virtual bool SilenceAll() = 0;
         virtual void Shutdown() = 0;
+
+        virtual bool SetMasterVolume(int volume) = 0;
+
+        virtual void SetMixer(AudioMixer* mixer) {}
+
+        bool SetInstrument(int program, int rootNote, const int16_t* samples, int sampleFrames, int sampleRate) {}
     };
 }
 
