@@ -70,3 +70,6 @@ log.txt
 
 lvgd/games/doom/bin
 lvgd/bin
+
+# exceptions to include
+!/DistroCreation/doc/etc/init.d

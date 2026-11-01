@@ -1,0 +1,67 @@
+#!/bin/sh
+
+# ============================================================
+# LVGD486 - System Initialization
+# ============================================================
+
+# ------------------------------------------------------------
+# Mount proc.
+# ------------------------------------------------------------
+mount -t proc proc /proc
+
+# ------------------------------------------------------------
+# Activate the swap partition 
+#
+# /dev/ide/host0 is the first disk, # host1 the second, etc. 
+# part1, part2 are partitions on that disk. Set this to the 
+# path to your swap partition.
+# ------------------------------------------------------------
+swapon /dev/ide/host0/bus0/target0/lun0/part2
+
+# ------------------------------------------------------------
+# Configure ownership of /dev for game.
+# Preserve /dev/ide and everything beneath it.
+# ------------------------------------------------------------
+GAME_UID=`awk -F: '$1 == "game" { print $3; exit }' /etc/passwd`
+GAME_GID=`awk -F: '$1 == "game" { print $4; exit }' /etc/passwd`
+
+if [ -n "$GAME_UID" ] && [ -n "$GAME_GID" ]; then
+    echo "Configuring /dev ownership for game ($GAME_UID:$GAME_GID)..."
+
+    for DEVICE in /dev/*
+    do
+        [ -e "$DEVICE" ] || [ -L "$DEVICE" ] || continue
+
+        [ "$DEVICE" = "/dev/ide" ] && continue
+
+        chown -R "$GAME_UID:$GAME_GID" "$DEVICE" ||
+            echo "WARNING: Could not change ownership of $DEVICE"
+    done
+
+    echo "Device ownership configuration finished."
+else
+    echo "WARNING: game account not found; /dev ownership unchanged"
+fi
+
+# ------------------------------------------------------------
+# Configure Ethernet using DHCP.
+# ------------------------------------------------------------
+echo "Configuring eth0..."
+ifconfig eth0 up
+udhcpc -i eth0 -s /usr/share/udhcpc/default.script
+echo "DHCP client exited with status $?"
+
+# ------------------------------------------------------------
+# Configure the Spanish keyboard layout.
+# ------------------------------------------------------------
+# if [ -x /bin/loadkeys ]; then
+#     if [ -f /usr/share/keymaps/es.map ]; then
+#         /bin/loadkeys /usr/share/keymaps/es.map
+#     elif [ -f /usr/share/keymaps/i386/qwerty/es.map ]; then
+#         /bin/loadkeys /usr/share/keymaps/i386/qwerty/es.map
+#     else
+#         echo "WARNING: Spanish keyboard map not found; keeping default layout."
+#     fi
+# fi
+
+exit 0
