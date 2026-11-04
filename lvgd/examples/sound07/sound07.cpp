@@ -1,7 +1,7 @@
 #include "../../vgd/Util/UniquePtr.hpp"
 #include "../../vgd/Input/Keyboard.hpp"
 #include "../../vgd/Font/BmpFont.hpp"
-#include "../../vgd/Font/BmpFont01.hpp"
+#include "../../vgd/Font/FontArcade01.hpp"
 #include "../../vgd/Sound/MidiPcm.hpp"
 #include "../../vgd/Sound/MidiSong.hpp"
 #include "../../vgd/Sound/MidiFile.hpp"
@@ -45,14 +45,7 @@ namespace
         12, 14, 11, 10, 13
     };
 
-    static const BMPFont DemoFont = {
-        Font01::Width, Font01::Height,
-        Font01::FirstDigit, Font01::DigitCount,
-        Font01::FirstUpper, Font01::UpperCount,
-        Font01::GlyphSpace,
-        &Font01::GlyphDigits[0][0],
-        &Font01::GlyphUpper[0][0]
-    };
+    static FontArcade01 DemoFont;
 
     static void DrawBackground(DisplayMode13h& d, unsigned long frame)
     {

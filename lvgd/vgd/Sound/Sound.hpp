@@ -3,7 +3,11 @@
 
 #include <stdint.h>
 #include <pthread.h>
-#include "../Util/String.hpp"
+#include "../Util/FixedString.hpp"
+
+namespace vgd
+{
+
 
 class Sound
 {
@@ -138,8 +142,10 @@ private:
     AudioBuffer m_Buffers[DoubleBufferCount];
     int m_NextBuffer;
 
-    String<64> m_DevicePath;
+    FixedString<64> m_DevicePath;
 	
 	int m_Mixer;
 	int m_MixerControl;	
 };
+
+}

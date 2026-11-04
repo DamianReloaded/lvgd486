@@ -4,7 +4,7 @@
 #include "../../vgd/Sound/Sound.hpp"
 #include "../../vgd/Sound/AudioMixer.hpp"
 #include "../../vgd/Font/BmpFont.hpp"
-#include "../../vgd/Font/BmpFont01.hpp"
+#include "../../vgd/Font/FontArcade01.hpp"
 
 #include <sys/time.h>
 #include <signal.h>
@@ -23,18 +23,7 @@ static void HandleSignal(int signalNumber)
     StopRequested = 1;
 }
 
-static const BMPFont FontChipstorm =
-{
-    Font01::Width,
-    Font01::Height,
-    Font01::FirstDigit,
-    Font01::DigitCount,
-    Font01::FirstUpper,
-    Font01::UpperCount,
-    Font01::GlyphSpace,
-    &Font01::GlyphDigits[0][0],
-    &Font01::GlyphUpper[0][0]
-};
+static FontArcade01 FontChipstorm;
 
 /*
  * CHIPSTORM - NEON DREAMS

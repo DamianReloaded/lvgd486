@@ -138,7 +138,7 @@ private:
     AudioBuffer m_Buffers[DoubleBufferCount];
     int m_NextBuffer;
 
-    String<64> m_DevicePath;
+    FixedString<64> m_DevicePath;
 	
 	int m_Mixer;
 	int m_MixerControl;	

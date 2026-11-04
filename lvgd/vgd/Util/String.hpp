@@ -1,57 +1,91 @@
+
 #pragma once
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <limits>
+#include <new>
+#include "FixedString.hpp"
 
-template <size_t Capacity>
+namespace vgd
+{
+
 class String
 {
-    static_assert(Capacity > 0, "String capacity must be greater than zero");
-
 public:
     String()
-        : m_Length(0)
+        : m_Buffer(new char[1]), m_Length(0), m_Capacity(1)
     {
         m_Buffer[0] = '\0';
     }
 
     String(const char* text)
-        : m_Length(0)
+        : m_Buffer(NULL), m_Length(0), m_Capacity(0)
     {
-        m_Buffer[0] = '\0';
         Assign(text);
     }
 
     String(const String& other)
-        : m_Length(other.m_Length)
+        : m_Buffer(NULL), m_Length(0), m_Capacity(0)
     {
-        memcpy(m_Buffer, other.m_Buffer, m_Length + 1);
+        Assign(other.CStr());
+    }
+
+    String(String&& other) noexcept
+        : m_Buffer(other.m_Buffer),
+          m_Length(other.m_Length),
+          m_Capacity(other.m_Capacity)
+    {
+        other.m_Buffer = NULL;
+        other.m_Length = 0;
+        other.m_Capacity = 0;
     }
 
     template <size_t OtherCapacity>
-    String(const String<OtherCapacity>& other)
-        : m_Length(0)
+    String(const FixedString<OtherCapacity>& other)
+        : m_Buffer(NULL), m_Length(0), m_Capacity(0)
     {
-        m_Buffer[0] = '\0';
         Assign(other.CStr());
+    }
+
+    ~String()
+    {
+        delete[] m_Buffer;
     }
 
     String& operator=(const String& other)
     {
         if (this != &other)
         {
+            Assign(other.CStr());
+        }
+
+        return *this;
+    }
+
+    String& operator=(String&& other) noexcept
+    {
+        if (this != &other)
+        {
+            delete[] m_Buffer;
+
+            m_Buffer = other.m_Buffer;
             m_Length = other.m_Length;
-            memcpy(m_Buffer, other.m_Buffer, m_Length + 1);
+            m_Capacity = other.m_Capacity;
+
+            other.m_Buffer = NULL;
+            other.m_Length = 0;
+            other.m_Capacity = 0;
         }
 
         return *this;
     }
 
     template <size_t OtherCapacity>
-    String& operator=(const String<OtherCapacity>& other)
+    String& operator=(const FixedString<OtherCapacity>& other)
     {
         Assign(other.CStr());
         return *this;
@@ -70,14 +104,14 @@ public:
         return m_Length;
     }
 
-    static constexpr size_t BufferSize()
+    size_t BufferSize() const
     {
-        return Capacity;
+        return m_Capacity;
     }
 
-    static constexpr size_t MaxLength()
+    size_t MaxLength() const
     {
-        return Capacity - 1;
+        return m_Capacity > 0 ? m_Capacity - 1 : 0;
     }
 
     bool Empty() const
@@ -87,42 +121,45 @@ public:
 
     const char* CStr() const
     {
-        return m_Buffer;
+        return m_Buffer != NULL ? m_Buffer : "";
     }
 
     char* Data()
     {
+        EnsureCapacity(1);
         return m_Buffer;
     }
 
     const char* Data() const
     {
-        return m_Buffer;
+        return CStr();
     }
 
     operator const char*() const
     {
-        return m_Buffer;
+        return CStr();
     }
 
     char& operator[](size_t index)
     {
+        EnsureCapacity(1);
         return m_Buffer[index];
     }
 
     const char& operator[](size_t index) const
     {
-        return m_Buffer[index];
+        return CStr()[index];
     }
 
     char& At(size_t index)
     {
+        EnsureCapacity(1);
         return m_Buffer[index < m_Length ? index : m_Length];
     }
 
     const char& At(size_t index) const
     {
-        return m_Buffer[index < m_Length ? index : m_Length];
+        return CStr()[index < m_Length ? index : m_Length];
     }
 
     // Assignment and modification
@@ -132,12 +169,19 @@ public:
         if (text == NULL)
             text = "";
 
+        if (IsInternal(text))
+        {
+            String temporary(text);
+            return Assign(temporary.CStr());
+        }
+
         size_t length = strlen(text);
 
-        if (length >= Capacity)
-            length = Capacity - 1;
+        EnsureCapacity(length + 1);
 
-        memmove(m_Buffer, text, length);
+        if (length > 0)
+            memmove(m_Buffer, text, length);
+
         m_Buffer[length] = '\0';
         m_Length = length;
 
@@ -147,7 +191,10 @@ public:
     String& Clear()
     {
         m_Length = 0;
-        m_Buffer[0] = '\0';
+
+        if (m_Buffer != NULL)
+            m_Buffer[0] = '\0';
+
         return *this;
     }
 
@@ -156,32 +203,44 @@ public:
         if (text == NULL)
             return *this;
 
-        size_t length = strlen(text);
-        size_t available = Capacity - 1 - m_Length;
+        if (IsInternal(text))
+        {
+            String temporary(text);
+            return Append(temporary.CStr());
+        }
 
-        if (length > available)
-            length = available;
+        size_t length = strlen(text);
+
+        if (length == 0)
+            return *this;
+
+        EnsureCapacity(m_Length + length + 1);
 
         memmove(m_Buffer + m_Length, text, length);
+
         m_Length += length;
         m_Buffer[m_Length] = '\0';
 
         return *this;
     }
 
+    String& Append(const String& other)
+    {
+        return Append(other.CStr());
+    }
+
     template <size_t OtherCapacity>
-    String& Append(const String<OtherCapacity>& other)
+    String& Append(const FixedString<OtherCapacity>& other)
     {
         return Append(other.CStr());
     }
 
     String& Append(char character)
     {
-        if (m_Length < Capacity - 1)
-        {
-            m_Buffer[m_Length++] = character;
-            m_Buffer[m_Length] = '\0';
-        }
+        EnsureCapacity(m_Length + 2);
+
+        m_Buffer[m_Length++] = character;
+        m_Buffer[m_Length] = '\0';
 
         return *this;
     }
@@ -191,8 +250,13 @@ public:
         return Append(text);
     }
 
+    String& operator+=(const String& other)
+    {
+        return Append(other);
+    }
+
     template <size_t OtherCapacity>
-    String& operator+=(const String<OtherCapacity>& other)
+    String& operator+=(const FixedString<OtherCapacity>& other)
     {
         return Append(other);
     }
@@ -207,32 +271,25 @@ public:
         if (text == NULL || index > m_Length)
             return *this;
 
-        char temporary[Capacity];
-        size_t length = strlen(text);
-
-        if (length > Capacity - 1 - m_Length)
-            length = Capacity - 1 - m_Length;
-
-        // Preserve the source if it points into this String.
-        if (text >= m_Buffer && text < m_Buffer + Capacity)
+        if (IsInternal(text))
         {
-            size_t sourceLength = strlen(text);
-
-            if (sourceLength >= Capacity)
-                sourceLength = Capacity - 1;
-
-            memcpy(temporary, text, sourceLength);
-            temporary[sourceLength] = '\0';
-            text = temporary;
-
-            if (length > sourceLength)
-                length = sourceLength;
+            String temporary(text);
+            return Insert(index, temporary.CStr());
         }
 
+        size_t length = strlen(text);
+
+        if (length == 0)
+            return *this;
+
+        EnsureCapacity(m_Length + length + 1);
+
         memmove(m_Buffer + index + length,
-                m_Buffer + index, m_Length - index + 1);
+                m_Buffer + index,
+                m_Length - index + 1);
 
         memmove(m_Buffer + index, text, length);
+
         m_Length += length;
 
         return *this;
@@ -251,6 +308,7 @@ public:
                 m_Length - index - count + 1);
 
         m_Length -= count;
+
         return *this;
     }
 
@@ -289,6 +347,7 @@ public:
             memmove(m_Buffer, m_Buffer + start, m_Length);
 
         m_Buffer[m_Length] = '\0';
+
         return *this;
     }
 
@@ -335,10 +394,10 @@ public:
         if (text == NULL || start > m_Length)
             return NotFound;
 
-        const char* result = strstr(m_Buffer + start, text);
+        const char* result = strstr(CStr() + start, text);
 
         return result != NULL
-            ? static_cast<size_t>(result - m_Buffer)
+            ? static_cast<size_t>(result - CStr())
             : NotFound;
     }
 
@@ -350,7 +409,7 @@ public:
         size_t length = strlen(text);
 
         return length <= m_Length &&
-               memcmp(m_Buffer, text, length) == 0;
+               memcmp(CStr(), text, length) == 0;
     }
 
     bool EndsWith(const char* text) const
@@ -361,11 +420,10 @@ public:
         size_t length = strlen(text);
 
         return length <= m_Length &&
-               memcmp(m_Buffer + m_Length - length,
-                      text, length) == 0;
+               memcmp(CStr() + m_Length - length, text, length) == 0;
     }
 
-    String Substring(size_t start, size_t count = Capacity - 1) const
+    String Substring(size_t start, size_t count = NotFound) const
     {
         String result;
 
@@ -375,7 +433,7 @@ public:
         if (count > m_Length - start)
             count = m_Length - start;
 
-        result.Assign(m_Buffer + start);
+        result.Assign(CStr() + start);
 
         if (result.m_Length > count)
         {
@@ -386,7 +444,7 @@ public:
         return result;
     }
 
-    static constexpr size_t NotFound = static_cast<size_t>(-1);
+    static const size_t NotFound = static_cast<size_t>(-1);
 
     // Comparisons
 
@@ -395,7 +453,7 @@ public:
         if (text == NULL)
             text = "";
 
-        return strcmp(m_Buffer, text);
+        return strcmp(CStr(), text);
     }
 
     bool operator==(const char* text) const
@@ -428,22 +486,34 @@ public:
         return Compare(text) >= 0;
     }
 
-    template <size_t OtherCapacity>
-    bool operator==(const String<OtherCapacity>& other) const
+    bool operator==(const String& other) const
     {
         return Compare(other.CStr()) == 0;
     }
 
-    template <size_t OtherCapacity>
-    bool operator!=(const String<OtherCapacity>& other) const
+    bool operator!=(const String& other) const
     {
         return !(*this == other);
     }
 
-    template <size_t OtherCapacity>
-    bool operator<(const String<OtherCapacity>& other) const
+    bool operator<(const String& other) const
     {
         return Compare(other.CStr()) < 0;
+    }
+
+    bool operator>(const String& other) const
+    {
+        return Compare(other.CStr()) > 0;
+    }
+
+    bool operator<=(const String& other) const
+    {
+        return Compare(other.CStr()) <= 0;
+    }
+
+    bool operator>=(const String& other) const
+    {
+        return Compare(other.CStr()) >= 0;
     }
 
     // Concatenation
@@ -462,8 +532,7 @@ public:
         return result;
     }
 
-    template <size_t OtherCapacity>
-    String operator+(const String<OtherCapacity>& other) const
+    String operator+(const String& other) const
     {
         String result(*this);
         result.Append(other);
@@ -476,9 +545,7 @@ public:
     bool ToNumber(T& value) const
     {
         if (m_Length == 0)
-        {
             return false;
-        }
 
         char* end = NULL;
         errno = 0;
@@ -487,10 +554,10 @@ public:
         {
             if (std::numeric_limits<T>::is_signed)
             {
-                const long long parsed = strtoll(m_Buffer, &end, 10);
+                const long long parsed = strtoll(CStr(), &end, 10);
 
                 if (errno == ERANGE ||
-                    end == m_Buffer ||
+                    end == CStr() ||
                     *end != '\0' ||
                     parsed < static_cast<long long>(
                         std::numeric_limits<T>::min()) ||
@@ -505,15 +572,13 @@ public:
             else
             {
                 if (m_Buffer[0] == '-')
-                {
                     return false;
-                }
 
                 const unsigned long long parsed =
-                    strtoull(m_Buffer, &end, 10);
+                    strtoull(CStr(), &end, 10);
 
                 if (errno == ERANGE ||
-                    end == m_Buffer ||
+                    end == CStr() ||
                     *end != '\0' ||
                     parsed > static_cast<unsigned long long>(
                         std::numeric_limits<T>::max()))
@@ -529,12 +594,10 @@ public:
 
         if (std::numeric_limits<T>::is_iec559)
         {
-            const double parsed = strtod(m_Buffer, &end);
+            const double parsed = strtod(CStr(), &end);
 
-            if (errno == ERANGE || end == m_Buffer || *end != '\0')
-            {
+            if (errno == ERANGE || end == CStr() || *end != '\0')
                 return false;
-            }
 
             if (parsed < -static_cast<double>(
                             std::numeric_limits<T>::max()) ||
@@ -552,16 +615,60 @@ public:
     }
 
 private:
-    char m_Buffer[Capacity];
+    char* m_Buffer;
     size_t m_Length;
+    size_t m_Capacity;
+
+    void EnsureCapacity(size_t required)
+    {
+        if (required <= m_Capacity)
+            return;
+
+        size_t newCapacity = m_Capacity > 0 ? m_Capacity : 1;
+
+        while (newCapacity < required)
+        {
+            if (newCapacity > static_cast<size_t>(-1) / 2)
+            {
+                newCapacity = required;
+                break;
+            }
+
+            newCapacity *= 2;
+        }
+
+        char* newBuffer = new char[newCapacity];
+
+        if (m_Buffer != NULL)
+            memcpy(newBuffer, m_Buffer, m_Length + 1);
+        else
+            newBuffer[0] = '\0';
+
+        delete[] m_Buffer;
+
+        m_Buffer = newBuffer;
+        m_Capacity = newCapacity;
+    }
+
+    bool IsInternal(const char* text) const
+    {
+        if (m_Buffer == NULL || text == NULL)
+            return false;
+
+        uintptr_t address = reinterpret_cast<uintptr_t>(text);
+        uintptr_t start = reinterpret_cast<uintptr_t>(m_Buffer);
+
+        return address >= start && address - start < m_Capacity;
+    }
 };
 
 // Support concatenation with a C string on the left.
 
-template <size_t Capacity>
-String<Capacity> operator+(const char* left, const String<Capacity>& right)
+inline String operator+(const char* left, const String& right)
 {
-    String<Capacity> result(left);
+    String result(left);
     result.Append(right);
     return result;
+}
+
 }

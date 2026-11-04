@@ -15,7 +15,7 @@
 #include <linux/kd.h>
 
 #include "../../vgd/Font/BmpFont.hpp"
-#include "../../vgd/Font/BmpFont01.hpp"
+#include "../../vgd/Font/FontArcade01.hpp"
 
 using namespace vgd;
 
@@ -29,6 +29,7 @@ using namespace vgd;
 
 static volatile sig_atomic_t StopRequested = 0;
 static uint8_t BackBuffer[FRAMEBUFFER_SIZE];
+static FontArcade01 FontFps;
 
 static void HandleSignal(int signalNumber)
 {
@@ -115,11 +116,6 @@ static int SaveConsoleFont(struct Mode13hVideo *video)
         return 0;
     }
 
-    /*
-     * The kernel console font interface stores glyph data in
-     * 32 bytes per character. The fixed buffer above therefore
-     * accommodates at most MAX_FONT_CHARS glyphs.
-     */
     video->OriginalFont.Width = operation.width;
     video->OriginalFont.Height = operation.height;
     video->OriginalFont.CharCount = operation.charcount;
@@ -165,8 +161,7 @@ static int VideoInitialize(struct Mode13hVideo *video)
         return 0;
     }
 
-    if (ioctl(video->ConsoleFd, KDGETMODE,
-              &video->OriginalConsoleMode) < 0)
+    if (ioctl(video->ConsoleFd, KDGETMODE, &video->OriginalConsoleMode) < 0)
     {
         perror("KDGETMODE");
         return 0;
@@ -176,8 +171,7 @@ static int VideoInitialize(struct Mode13hVideo *video)
 
     if (video->OriginalConsoleMode != KD_TEXT)
     {
-        fprintf(stderr,
-                "Run from a text-mode Linux virtual console.\n");
+        fprintf(stderr, "Run from a text-mode Linux virtual console.\n");
         return 0;
     }
 
@@ -208,8 +202,7 @@ static int VideoInitialize(struct Mode13hVideo *video)
         return 0;
     }
 
-    mapping = mmap(NULL, VGA_WINDOW_SIZE,
-                   PROT_READ | PROT_WRITE,
+    mapping = mmap(NULL, VGA_WINDOW_SIZE, PROT_READ | PROT_WRITE,
                    MAP_SHARED, video->MemoryFd, VGA_ADDRESS);
 
     if (mapping == MAP_FAILED)
@@ -247,12 +240,9 @@ static int VideoInitialize(struct Mode13hVideo *video)
     return 1;
 }
 
-static int VideoPresent(struct Mode13hVideo *video,
-                        const uint8_t *backBuffer)
+static int VideoPresent(struct Mode13hVideo *video, const uint8_t *backBuffer)
 {
-    if (!video->Initialized ||
-        !video->Framebuffer ||
-        !backBuffer)
+    if (!video->Initialized || !video->Framebuffer || !backBuffer)
         return 0;
 
     WaitForVerticalRetrace();
@@ -273,8 +263,7 @@ static void VideoShutdown(struct Mode13hVideo *video)
         video->ConsoleModeSaved &&
         video->GraphicsModeEnabled)
     {
-        if (ioctl(video->ConsoleFd, KDSETMODE,
-                  video->OriginalConsoleMode) < 0)
+        if (ioctl(video->ConsoleFd, KDSETMODE, video->OriginalConsoleMode) < 0)
             perror("KDSETMODE restore");
 
         video->GraphicsModeEnabled = 0;
@@ -284,8 +273,7 @@ static void VideoShutdown(struct Mode13hVideo *video)
 
     if (video->ConsoleFd >= 0 && video->TerminalStateSaved)
     {
-        if (tcsetattr(video->ConsoleFd, TCSANOW,
-                      &video->OriginalTerminal) < 0)
+        if (tcsetattr(video->ConsoleFd, TCSANOW, &video->OriginalTerminal) < 0)
             perror("tcsetattr restore");
 
         video->TerminalStateSaved = 0;
@@ -322,9 +310,7 @@ static void VideoShutdown(struct Mode13hVideo *video)
 
 static void SetMode13h(void)
 {
-    static const uint8_t Sequencer[5] =
-        { 0x03, 0x01, 0x0F, 0x00, 0x0E };
-
+    static const uint8_t Sequencer[5] = { 0x03, 0x01, 0x0F, 0x00, 0x0E };
     static const uint8_t CRTC[25] =
     {
         0x5F, 0x4F, 0x50, 0x82, 0x54,
@@ -333,11 +319,11 @@ static void SetMode13h(void)
         0x00, 0x9C, 0x0E, 0x8F, 0x28,
         0x40, 0x96, 0xB9, 0xA3, 0xFF
     };
-
     static const uint8_t Graphics[9] =
-        { 0x00, 0x00, 0x00, 0x00, 0x00,
-          0x40, 0x05, 0x0F, 0xFF };
-
+    {
+        0x00, 0x00, 0x00, 0x00, 0x00,
+        0x40, 0x05, 0x0F, 0xFF
+    };
     static const uint8_t Attribute[21] =
     {
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
@@ -431,9 +417,7 @@ static void SetMode13h(void)
 
 static void SetTextMode(void)
 {
-    static const uint8_t Sequencer[5] =
-        { 0x03, 0x00, 0x03, 0x00, 0x02 };
-
+    static const uint8_t Sequencer[5] = { 0x03, 0x00, 0x03, 0x00, 0x02 };
     static const uint8_t CRTC[25] =
     {
         0x5F, 0x4F, 0x50, 0x82, 0x55,
@@ -442,11 +426,11 @@ static void SetTextMode(void)
         0x50, 0x9C, 0x0E, 0x8F, 0x28,
         0x1F, 0x96, 0xB9, 0xA3, 0xFF
     };
-
     static const uint8_t Graphics[9] =
-        { 0x00, 0x00, 0x00, 0x00, 0x00,
-          0x10, 0x0E, 0x00, 0xFF };
-
+    {
+        0x00, 0x00, 0x00, 0x00, 0x00,
+        0x10, 0x0E, 0x00, 0xFF
+    };
     static const uint8_t Attribute[21] =
     {
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
@@ -515,34 +499,12 @@ static void WaitForVerticalRetrace(void)
         ;
 }
 
-static const BMPFont FontFps =
+static void PutPixel(uint8_t *framebuffer, int x, int y, uint8_t color)
 {
-    Font01::Width,
-    Font01::Height,
-    Font01::FirstDigit,
-    Font01::DigitCount,
-    Font01::FirstUpper,
-    Font01::UpperCount,
-    Font01::GlyphSpace,
-    &Font01::GlyphDigits[0][0],
-    &Font01::GlyphUpper[0][0]
-};
-
-static void PutPixel(uint8_t *framebuffer,
-                     int x, int y, uint8_t color)
-{
-    if (x >= 0 && x < SCREEN_WIDTH &&
-        y >= 0 && y < SCREEN_HEIGHT)
+    if (x >= 0 && x < SCREEN_WIDTH && y >= 0 && y < SCREEN_HEIGHT)
         framebuffer[y * SCREEN_WIDTH + x] = color;
 }
 
-/*
- * BMPFontDrawText is templated on PixelWriter and calls it as:
- *     putPixel(x, y, color)
- *
- * Keep this callable object rather than passing a C callback
- * and a separate context pointer.
- */
 struct PixelWriter
 {
     uint8_t *Framebuffer;
@@ -558,8 +520,7 @@ static void ClearScreen(uint8_t color)
     memset(BackBuffer, color, sizeof(BackBuffer));
 }
 
-static void DrawRectangle(int x, int y,
-                          int width, int height, uint8_t color)
+static void DrawRectangle(int x, int y, int width, int height, uint8_t color)
 {
     int px;
     int py;
@@ -581,10 +542,8 @@ static void DrawText(const char *text, int x, int y, uint8_t color)
 {
     PixelWriter writer = { BackBuffer };
 
-    BMPFontDrawText(
-        FontFps, text, x, y, 8, 8, 1, color,
-        SCREEN_WIDTH, SCREEN_HEIGHT,
-        writer);
+    BMPFontDrawText(FontFps, text, x, y, 8, 8, 1, color,
+                    SCREEN_WIDTH, SCREEN_HEIGHT, writer);
 }
 
 static char *AppendText(char *p, const char *s)
@@ -640,8 +599,7 @@ static void DrawFrame(unsigned long frameNumber, unsigned int fps)
             int patternX = (x + scrollX) / 8;
             int pattern = (patternX + patternY) & 15;
 
-            BackBuffer[y * SCREEN_WIDTH + x] =
-                (uint8_t)(pattern + 1);
+            BackBuffer[y * SCREEN_WIDTH + x] = (uint8_t)(pattern + 1);
         }
     }
 
@@ -698,9 +656,8 @@ static int RunGame(struct Mode13hVideo *video)
 
         if (elapsedMilliseconds >= 1000)
         {
-            fps = (unsigned int)(
-                fpsFrames * 1000UL /
-                (unsigned long)elapsedMilliseconds);
+            fps = (unsigned int)(fpsFrames * 1000UL /
+                                 (unsigned long)elapsedMilliseconds);
 
             fpsFrames = 0;
             previousTime = currentTime;
@@ -712,8 +669,7 @@ static int RunGame(struct Mode13hVideo *video)
         timeout.tv_sec = 0;
         timeout.tv_usec = 1000;
 
-        result = select(STDIN_FILENO + 1,
-                        &readSet, NULL, NULL, &timeout);
+        result = select(STDIN_FILENO + 1, &readSet, NULL, NULL, &timeout);
 
         if (result > 0 && FD_ISSET(STDIN_FILENO, &readSet))
         {

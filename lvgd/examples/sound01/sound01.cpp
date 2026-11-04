@@ -4,7 +4,7 @@
 #include "../../vgd/Sound/Sound.hpp"
 #include "../../vgd/Sound/AudioMixer.hpp"
 #include "../../vgd/Font/BmpFont.hpp"
-#include "../../vgd/Font/BmpFont01.hpp"
+#include "../../vgd/Font/FontArcade01.hpp"
 
 #include <signal.h>
 #include <errno.h>
@@ -17,6 +17,8 @@
 using namespace vgd;
 
 static volatile sig_atomic_t StopRequested = 0;
+
+static FontArcade01 FontSound;
 
 static void HandleSignal(int signalNumber)
 {
@@ -260,19 +262,6 @@ static void WriteDiagnosticLog(
     fclose(file);
 }
 
-static const BMPFont FontSound =
-{
-    Font01::Width,
-    Font01::Height,
-    Font01::FirstDigit,
-    Font01::DigitCount,
-    Font01::FirstUpper,
-    Font01::UpperCount,
-    Font01::GlyphSpace,
-    &Font01::GlyphDigits[0][0],
-    &Font01::GlyphUpper[0][0]
-};
-
 static char* AppendText(char* p, const char* s)
 {
     while (*s)
@@ -452,7 +441,7 @@ static int RunGame(
      */
     uint64_t lastScheduledFrame = 0;
 
-    String<32> status;
+    FixedString<32> status;
     status.Assign("READY");
 
     if (!display.Initialize())

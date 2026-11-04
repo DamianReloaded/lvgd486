@@ -10,6 +10,9 @@
 #include <sys/ioctl.h>
 #include <sys/soundcard.h>
 
+namespace vgd
+{
+
 Sound::Configuration::Configuration()
     : SampleRate(22050),
       Channels(1),
@@ -859,4 +862,6 @@ bool Sound::ConfigureDevice(int device,
 #endif
 
     return true;
+}
+
 }

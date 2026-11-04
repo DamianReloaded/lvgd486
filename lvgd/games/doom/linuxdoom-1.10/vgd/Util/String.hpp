@@ -7,39 +7,39 @@
 #include <limits>
 
 template <size_t Capacity>
-class String
+class FixedString
 {
     static_assert(Capacity > 0, "String capacity must be greater than zero");
 
 public:
-    String()
+    FixedString()
         : m_Length(0)
     {
         m_Buffer[0] = '\0';
     }
 
-    String(const char* text)
+    FixedString(const char* text)
         : m_Length(0)
     {
         m_Buffer[0] = '\0';
         Assign(text);
     }
 
-    String(const String& other)
+    FixedString(const FixedString& other)
         : m_Length(other.m_Length)
     {
         memcpy(m_Buffer, other.m_Buffer, m_Length + 1);
     }
 
     template <size_t OtherCapacity>
-    String(const String<OtherCapacity>& other)
+    FixedString(const FixedString<OtherCapacity>& other)
         : m_Length(0)
     {
         m_Buffer[0] = '\0';
         Assign(other.CStr());
     }
 
-    String& operator=(const String& other)
+    FixedString& operator=(const FixedString& other)
     {
         if (this != &other)
         {
@@ -51,13 +51,13 @@ public:
     }
 
     template <size_t OtherCapacity>
-    String& operator=(const String<OtherCapacity>& other)
+    FixedString& operator=(const FixedString<OtherCapacity>& other)
     {
         Assign(other.CStr());
         return *this;
     }
 
-    String& operator=(const char* text)
+    FixedString& operator=(const char* text)
     {
         Assign(text);
         return *this;
@@ -127,7 +127,7 @@ public:
 
     // Assignment and modification
 
-    String& Assign(const char* text)
+    FixedString& Assign(const char* text)
     {
         if (text == NULL)
             text = "";
@@ -144,14 +144,14 @@ public:
         return *this;
     }
 
-    String& Clear()
+    FixedString& Clear()
     {
         m_Length = 0;
         m_Buffer[0] = '\0';
         return *this;
     }
 
-    String& Append(const char* text)
+    FixedString& Append(const char* text)
     {
         if (text == NULL)
             return *this;
@@ -170,12 +170,12 @@ public:
     }
 
     template <size_t OtherCapacity>
-    String& Append(const String<OtherCapacity>& other)
+    FixedString& Append(const FixedString<OtherCapacity>& other)
     {
         return Append(other.CStr());
     }
 
-    String& Append(char character)
+    FixedString& Append(char character)
     {
         if (m_Length < Capacity - 1)
         {
@@ -186,23 +186,23 @@ public:
         return *this;
     }
 
-    String& operator+=(const char* text)
+    FixedString& operator+=(const char* text)
     {
         return Append(text);
     }
 
     template <size_t OtherCapacity>
-    String& operator+=(const String<OtherCapacity>& other)
+    FixedString& operator+=(const FixedString<OtherCapacity>& other)
     {
         return Append(other);
     }
 
-    String& operator+=(char character)
+    FixedString& operator+=(char character)
     {
         return Append(character);
     }
 
-    String& Insert(size_t index, const char* text)
+    FixedString& Insert(size_t index, const char* text)
     {
         if (text == NULL || index > m_Length)
             return *this;
@@ -238,7 +238,7 @@ public:
         return *this;
     }
 
-    String& Erase(size_t index, size_t count = 1)
+    FixedString& Erase(size_t index, size_t count = 1)
     {
         if (index >= m_Length)
             return *this;
@@ -254,7 +254,7 @@ public:
         return *this;
     }
 
-    String& Replace(char oldCharacter, char newCharacter)
+    FixedString& Replace(char oldCharacter, char newCharacter)
     {
         for (size_t i = 0; i < m_Length; ++i)
         {
@@ -265,7 +265,7 @@ public:
         return *this;
     }
 
-    String& Trim()
+    FixedString& Trim()
     {
         size_t start = 0;
 
@@ -292,7 +292,7 @@ public:
         return *this;
     }
 
-    String& ToLower()
+    FixedString& ToLower()
     {
         for (size_t i = 0; i < m_Length; ++i)
         {
@@ -303,7 +303,7 @@ public:
         return *this;
     }
 
-    String& ToUpper()
+    FixedString& ToUpper()
     {
         for (size_t i = 0; i < m_Length; ++i)
         {
@@ -365,9 +365,9 @@ public:
                       text, length) == 0;
     }
 
-    String Substring(size_t start, size_t count = Capacity - 1) const
+    FixedString Substring(size_t start, size_t count = Capacity - 1) const
     {
-        String result;
+        FixedString result;
 
         if (start >= m_Length)
             return result;
@@ -429,43 +429,43 @@ public:
     }
 
     template <size_t OtherCapacity>
-    bool operator==(const String<OtherCapacity>& other) const
+    bool operator==(const FixedString<OtherCapacity>& other) const
     {
         return Compare(other.CStr()) == 0;
     }
 
     template <size_t OtherCapacity>
-    bool operator!=(const String<OtherCapacity>& other) const
+    bool operator!=(const FixedString<OtherCapacity>& other) const
     {
         return !(*this == other);
     }
 
     template <size_t OtherCapacity>
-    bool operator<(const String<OtherCapacity>& other) const
+    bool operator<(const FixedString<OtherCapacity>& other) const
     {
         return Compare(other.CStr()) < 0;
     }
 
     // Concatenation
 
-    String operator+(const char* text) const
+    FixedString operator+(const char* text) const
     {
-        String result(*this);
+        FixedString result(*this);
         result.Append(text);
         return result;
     }
 
-    String operator+(char character) const
+    FixedString operator+(char character) const
     {
-        String result(*this);
+        FixedString result(*this);
         result.Append(character);
         return result;
     }
 
     template <size_t OtherCapacity>
-    String operator+(const String<OtherCapacity>& other) const
+    FixedString operator+(const FixedString<OtherCapacity>& other) const
     {
-        String result(*this);
+        FixedString result(*this);
         result.Append(other);
         return result;
     }
@@ -559,9 +559,9 @@ private:
 // Support concatenation with a C string on the left.
 
 template <size_t Capacity>
-String<Capacity> operator+(const char* left, const String<Capacity>& right)
+FixedString<Capacity> operator+(const char* left, const FixedString<Capacity>& right)
 {
-    String<Capacity> result(left);
+    FixedString<Capacity> result(left);
     result.Append(right);
     return result;
 }

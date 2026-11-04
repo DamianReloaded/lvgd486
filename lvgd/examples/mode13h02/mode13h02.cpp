@@ -1,8 +1,7 @@
 #include "../../vgd/Display/DisplayMode13h.hpp"
 #include "../../vgd/Input/Keyboard.hpp"
 #include "../../vgd/Input/Mouse.hpp"
-#include "../../vgd/Font/BmpFont.hpp"
-#include "../../vgd/Font/BmpFont01.hpp"
+#include "../../vgd/Font/FontArcade01.hpp"
 
 #include <linux/input.h>
 #include <linux/kd.h>
@@ -25,25 +24,13 @@
 using namespace vgd;
 
 static volatile sig_atomic_t StopRequested = 0;
+static FontArcade01 FontFps;
 
 static void HandleSignal(int signalNumber)
 {
     (void)signalNumber;
     StopRequested = 1;
 }
-
-static const BMPFont FontFps =
-{
-    Font01::Width,
-    Font01::Height,
-    Font01::FirstDigit,
-    Font01::DigitCount,
-    Font01::FirstUpper,
-    Font01::UpperCount,
-    Font01::GlyphSpace,
-    &Font01::GlyphDigits[0][0],
-    &Font01::GlyphUpper[0][0]
-};
 
 static char* AppendText(char* p, const char* s)
 {
@@ -196,8 +183,7 @@ static int RunGame(DisplayMode13h& display)
 
         for (int key = 1; key < Keyboard::KeyCount; ++key)
         {
-            if (keyboard.WasPressed(
-                    static_cast<Keyboard::Key>(key)))
+            if (keyboard.WasPressed(static_cast<Keyboard::Key>(key)))
             {
                 keyPressed = true;
                 break;

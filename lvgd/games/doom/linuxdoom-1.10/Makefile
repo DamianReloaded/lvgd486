@@ -216,9 +216,9 @@ $(O)/MusFile.o: vgd/Sound/MusFile.cpp | $(O)
 # Verify C++ standard library headers and String.hpp.
 check-limits:
 	@echo "Checking GCC $(GCC_VERSION) C++ headers..."
-	@printf '#include <limits>\n#include "String.hpp"\nint main() { return 0; }\n' | \
+	@printf '#include <limits>\n#include "FixedString.hpp"\nint main() { return 0; }\n' | \
 		$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x c++ -fsyntax-only -
-	@echo "C++ headers and String.hpp found successfully."
+	@echo "C++ headers and FixedString.hpp found successfully."
 
 # Clean build files.
 clean:

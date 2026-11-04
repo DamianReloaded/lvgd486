@@ -2,7 +2,7 @@
 #include "../../vgd/Input/Keyboard.hpp"
 #include "../../vgd/Sound/Sound.hpp"
 #include "../../vgd/Font/BmpFont.hpp"
-#include "../../vgd/Font/BmpFont01.hpp"
+#include "../../vgd/Font/FontArcade01.hpp"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -14,21 +14,13 @@ using namespace vgd;
 
 static volatile sig_atomic_t StopRequested = 0;
 
+static FontArcade01 FontChipfusion;
+
 static void HandleSignal(int signalNumber)
 {
     (void)signalNumber;
     StopRequested = 1;
 }
-
-static const BMPFont FontChipfusion =
-{
-    Font01::Width, Font01::Height,
-    Font01::FirstDigit, Font01::DigitCount,
-    Font01::FirstUpper, Font01::UpperCount,
-    Font01::GlyphSpace,
-    &Font01::GlyphDigits[0][0],
-    &Font01::GlyphUpper[0][0]
-};
 
 static const int NotesLead[] =
 {
