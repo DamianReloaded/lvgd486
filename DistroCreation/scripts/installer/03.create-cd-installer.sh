@@ -25,7 +25,7 @@ BUSYBOX="${DISTRO_ROOT}/bin/busybox"
 DISTRO_BIN="${DISTRO_ROOT}/bin"
 DISTRO_SBIN="${DISTRO_ROOT}/sbin"
 
-KERNEL="${DISTRO_ROOT}/boot/bzImage"
+KERNEL="/home/user/sources/linux/arch/i386/boot/bzImage"
 KERNEL_CONFIG="/home/user/sources/linux/.config"
 
 GRUB_SHELL="/home/user/sources/build/grub/grub/grub"

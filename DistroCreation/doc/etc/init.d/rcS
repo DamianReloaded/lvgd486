@@ -10,6 +10,11 @@
 mount -t proc proc /proc
 
 # ------------------------------------------------------------
+# Activate Swap partition. (set this to your partition location)
+# ------------------------------------------------------------
+swapon /dev/ide/host0/bus0/target0/lun0/part2
+
+# ------------------------------------------------------------
 # Activate the swap partition 
 #
 # /dev/ide/host0 is the first disk, # host1 the second, etc. 

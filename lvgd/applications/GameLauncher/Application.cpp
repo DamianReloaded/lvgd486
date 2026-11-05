@@ -400,11 +400,40 @@ int Application::Run()
 
     while (!m_ExitRequested)
     {
-        const uint64_t currentTime = vgd::Clock::GetTimeNanoseconds();
-        const uint64_t elapsed = currentTime - previousTime;
+const uint64_t currentTime = vgd::Clock::GetTimeNanoseconds();
 
-        previousTime = currentTime;
-        accumulator += elapsed * UpdateRate;
+if (currentTime < previousTime)
+{
+    printf("CLOCK WENT BACKWARDS! Previous: %llu Current: %llu\n",
+           (unsigned long long)previousTime,
+           (unsigned long long)currentTime);
+}
+
+const uint64_t elapsed = currentTime - previousTime;
+
+if (elapsed > 100000000ULL)
+{
+    printf("LARGE ELAPSED: %llu ns\n",
+           (unsigned long long)elapsed);
+}
+
+previousTime = currentTime;
+
+const uint64_t delta = elapsed * UpdateRate;
+
+if (delta > UpdateThreshold * 10)
+{
+    printf("LARGE DELTA: %llu\n",
+           (unsigned long long)delta);
+}
+
+accumulator += delta;
+
+if (accumulator > UpdateThreshold * 10)
+{
+    printf("LARGE ACCUMULATOR: %llu\n",
+           (unsigned long long)accumulator);
+}
 
         while (accumulator >= UpdateThreshold && !m_ExitRequested)
         {
