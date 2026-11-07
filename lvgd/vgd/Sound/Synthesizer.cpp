@@ -1,26 +1,3 @@
-/*
-//You can configure it before initializing MIDI:
-    vgd::MidiPcm Midi;
-    vgd::Synthesizer::Settings Settings;
-    Settings.SampleRate = 44100;
-    Settings.Brightness = 120;
-    Settings.NoiseLevel = 100;
-    Midi.GetSynthesizer().SetSettings(Settings);
-    Midi.Initialize(0);
-
-You can also customize individual instruments:
-    vgd::Synthesizer::Instrument Instrument;
-    const vgd::Synthesizer::Instrument* Existing = Midi.GetSynthesizer().GetInstrument(0);
-    if (Existing)
-    {
-        Instrument = *Existing;
-        Instrument.Brightness = 1.5f;
-        Instrument.Harmonics[5] = 0.25f;
-
-        Midi.GetSynthesizer().SetInstrument(0, Instrument);
-    }
-
-*/
 #include "Synthesizer.hpp"
 
 #include <math.h>
@@ -432,14 +409,11 @@ bool Synthesizer::GenerateInternal(int program, int note, int velocity, Sample& 
         ? LoopFrameCount
         : (sampleRate * m_Settings.DurationMs) / 1000;
 
-    if (frameCount <= 0)
-        return false;
-
-    if (!sample.Data.Resize(frameCount)) 
+    if (frameCount <= 0 || !sample.Data.Resize(frameCount))
         return false;
 
     sample.SampleRate = sampleRate;
-    sample.LoopStart = loop ? 0 : 0;
+    sample.LoopStart = 0;
     sample.LoopEnd = loop ? frameCount : 0;
 
     const float frequency = NoteToFrequency(note);
@@ -487,6 +461,361 @@ bool Synthesizer::GenerateInternal(int program, int note, int velocity, Sample& 
         }
 
         value = Clamp(value, -1.0f, 1.0f);
+        sample.Data[i] = (int16_t)(value * 30000.0f);
+    }
+
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// Procedural General MIDI percussion
+// -----------------------------------------------------------------------------
+
+bool Synthesizer::GenerateDrum(int note, int velocity, Sample& sample) const
+{
+    sample.Clear();
+
+    if (note < 0 || note > 127 || velocity < 1 || velocity > 127)
+        return false;
+
+    enum DrumType
+    {
+        DrumKick,
+        DrumSnare,
+        DrumTom,
+        DrumHat,
+        DrumCymbal,
+        DrumClap,
+        DrumRim,
+        DrumCowbell,
+        DrumClick,
+        DrumFallback
+    };
+
+    DrumType type = DrumFallback;
+    float duration = 0.35f;
+    float baseFrequency = 180.0f;
+    float noiseAmount = 0.0f;
+    float toneAmount = 0.0f;
+    float decay = 8.0f;
+
+    switch (note)
+    {
+        case 35:
+        case 36:
+            type = DrumKick;
+            duration = 0.65f;
+            baseFrequency = note == 35 ? 72.0f : 92.0f;
+            toneAmount = 1.0f;
+            noiseAmount = 0.12f;
+            decay = 7.0f;
+            break;
+    }
+
+    // The remaining General MIDI notes are grouped by their physical sound.
+    if (note == 37 || note == 39 || note == 56 || note == 60 || note == 61 ||
+        note == 62 || note == 63 || note == 64 || note == 65 || note == 66 ||
+        note == 67 || note == 68 || note == 69 || note == 70 || note == 71 ||
+        note == 72 || note == 73 || note == 74 || note == 75 || note == 76 ||
+        note == 77 || note == 78 || note == 79 || note == 80 || note == 81)
+    {
+        type = note == 37 ? DrumRim : DrumFallback;
+        duration = 0.18f;
+        baseFrequency = 900.0f;
+        noiseAmount = 0.55f;
+        toneAmount = 0.35f;
+        decay = 18.0f;
+    }
+
+    switch (note)
+    {
+        case 38:
+        case 40:
+            type = DrumSnare;
+            duration = 0.48f;
+            baseFrequency = note == 38 ? 185.0f : 205.0f;
+            toneAmount = 0.55f;
+            noiseAmount = 0.45f; // Was 0.9f
+            decay = 10.0f;
+            break;
+
+        case 41:
+        case 43:
+        case 45:
+        case 47:
+        case 48:
+        case 50:
+            type = DrumTom;
+            duration = 0.55f;
+            baseFrequency = 95.0f + (float)(note - 41) * 13.0f;
+            toneAmount = 0.95f;
+            noiseAmount = 0.12f;
+            decay = 6.5f;
+            break;
+
+        case 42:
+        case 44:
+            type = DrumHat;
+            duration = 0.12f;
+            baseFrequency = 6500.0f;
+            toneAmount = 0.65f;
+            noiseAmount = 0.25f;
+            decay = 38.0f;
+            break;
+
+        case 46:
+            type = DrumHat;
+            duration = 0.15f;
+            baseFrequency = 6200.0f;
+            toneAmount = 0.75f;
+            noiseAmount = 0.2f;
+            decay = 5.5f;
+            break;
+
+        case 49:
+        case 52:
+        case 55:
+        case 57:
+        case 59:
+            type = DrumCymbal;
+            duration = 0.35f;
+            baseFrequency = 3600.0f;
+            toneAmount = 0.35f;
+            noiseAmount = 0.20f;
+            decay = 9.0f;
+            break;
+
+        case 51:
+        case 53:
+        case 54:
+        case 58:
+            type = DrumCymbal;
+            duration = 0.28f;
+            baseFrequency = 2600.0f;
+            toneAmount = 0.30f;
+            noiseAmount = 0.15f;
+            decay = 11.0f;
+            break;
+    }
+
+    if (note == 39)
+    {
+        type = DrumClap;
+        duration = 0.32f;
+        noiseAmount = 1.0f;
+        toneAmount = 0.0f;
+        decay = 13.0f;
+    }
+
+    if (note == 37)
+    {
+        type = DrumRim;
+        duration = 0.16f;
+        baseFrequency = 1550.0f;
+        toneAmount = 0.85f;
+        noiseAmount = 0.18f;
+        decay = 28.0f;
+    }
+
+    if (note == 56)
+    {
+        type = DrumCowbell;
+        duration = 0.42f;
+        baseFrequency = 560.0f;
+        toneAmount = 1.0f;
+        noiseAmount = 0.0f;
+        decay = 7.0f;
+    }
+
+    if (note == 75 || note == 76 || note == 77 || note == 78 ||
+        note == 79 || note == 80 || note == 81)
+    {
+        type = DrumClick;
+        duration = 0.12f;
+        baseFrequency = 1300.0f + (float)(note - 75) * 180.0f;
+        toneAmount = 0.75f;
+        noiseAmount = 0.35f;
+        decay = 24.0f;
+    }
+
+    const int sampleRate = m_Settings.SampleRate;
+    const int frameCount = (int)((float)sampleRate * duration);
+
+    if (frameCount <= 0 || !sample.Data.Resize(frameCount))
+        return false;
+
+    sample.SampleRate = sampleRate;
+    sample.LoopStart = 0;
+    sample.LoopEnd = 0;
+
+    const float velocityGain = (float)velocity / 127.0f;
+    const float masterGain = (float)m_Settings.MasterGain / 100.0f;
+    const float noiseGain = (float)m_Settings.NoiseLevel / 100.0f;
+    const float brightness = (float)m_Settings.Brightness / 100.0f;
+
+    unsigned int seed =
+        0xA341316Cu ^ ((unsigned int)note * 0x9E3779B9u) ^
+        ((unsigned int)velocity << 16);
+
+    float noiseLow = 0.0f;
+    float previousNoise = 0.0f;
+    float phase1 = 0.0f;
+    float phase2 = 0.0f;
+    float phase3 = 0.0f;
+
+    const float metallicFrequencies[6] =
+    {
+        baseFrequency,
+        baseFrequency * 1.342f,
+        baseFrequency * 1.731f,
+        baseFrequency * 2.113f,
+        baseFrequency * 2.487f,
+        baseFrequency * 3.019f
+    };
+
+    for (int i = 0; i < frameCount; ++i)
+    {
+        const float time = (float)i / (float)sampleRate;
+        const float progress = time / duration;
+        const float noise = GenerateNoise(seed);
+
+        const float noiseCutoff =
+            type == DrumHat || type == DrumCymbal ? 0.12f : 0.035f;
+
+        noiseLow += (noise - noiseLow) * noiseCutoff;
+        const float highNoise = noise - noiseLow;
+
+        float envelope = expf(-time * decay);
+        float tone = 0.0f;
+        float transient = 0.0f;
+
+        switch (type)
+        {
+            case DrumKick:
+            {
+                const float pitch = baseFrequency *
+                    (0.42f + 0.58f * expf(-time * 22.0f));
+
+                phase1 += TwoPi * pitch / (float)sampleRate;
+                phase2 += TwoPi * (pitch * 1.98f) / (float)sampleRate;
+
+                tone = sinf(phase1) * 0.9f +
+                       sinf(phase2) * 0.1f;
+
+                transient = highNoise * expf(-time * 100.0f) * 0.25f;
+                envelope = expf(-time * decay);
+                break;
+            }
+
+            case DrumSnare:
+            {
+                const float pitch = baseFrequency *
+                    (0.82f + 0.18f * expf(-time * 35.0f));
+
+                phase1 += TwoPi * pitch / (float)sampleRate;
+                phase2 += TwoPi * (pitch * 1.61f) / (float)sampleRate;
+
+                tone = sinf(phase1) * 0.72f +
+                    sinf(phase2) * 0.28f;
+
+                transient = highNoise * expf(-time * 12.0f);
+                envelope = expf(-time * decay);
+                break;
+            }
+
+            case DrumTom:
+            {
+                const float pitch = baseFrequency *
+                    (0.68f + 0.32f * expf(-time * 17.0f));
+
+                phase1 += TwoPi * pitch / (float)sampleRate;
+                phase2 += TwoPi * (pitch * 2.02f) / (float)sampleRate;
+
+                tone = sinf(phase1) * 0.85f +
+                       sinf(phase2) * 0.15f;
+
+                transient = highNoise * expf(-time * 55.0f) * 0.2f;
+                envelope = expf(-time * decay);
+                break;
+            }
+
+            case DrumHat:
+            case DrumCymbal:
+            {
+                float metallic = 0.0f;
+
+                for (int p = 0; p < 6; ++p)
+                {
+                    const float frequency = metallicFrequencies[p];
+                    const float weight = 1.0f / (float)(p + 1);
+
+                    if (type == DrumHat && frequency > 0.46f * sampleRate)
+                        continue;
+
+                    if (type == DrumCymbal && frequency > 0.46f * sampleRate)
+                        continue;
+
+                    metallic += sinf(
+                        TwoPi * frequency * time) * weight;
+                }
+
+                tone = metallic * 0.22f;
+                transient = highNoise * 0.85f;
+                envelope = expf(-time * decay);
+                break;
+            }
+
+            case DrumClap:
+            {
+                const float burst1 = expf(-time * 65.0f);
+                const float burst2 = time > 0.018f
+                    ? expf(-(time - 0.018f) * 85.0f) : 0.0f;
+                const float burst3 = time > 0.036f
+                    ? expf(-(time - 0.036f) * 105.0f) : 0.0f;
+                const float burst4 = time > 0.055f
+                    ? expf(-(time - 0.055f) * 130.0f) : 0.0f;
+
+                transient = highNoise *
+                    (burst1 + burst2 * 0.75f +
+                     burst3 * 0.55f + burst4 * 0.35f);
+
+                envelope = expf(-time * 8.0f);
+                break;
+            }
+
+            case DrumRim:
+            case DrumCowbell:
+            case DrumClick:
+            case DrumFallback:
+            {
+                phase1 += TwoPi * baseFrequency / (float)sampleRate;
+                phase2 += TwoPi * (baseFrequency * 1.47f) / (float)sampleRate;
+                phase3 += TwoPi * (baseFrequency * 2.13f) / (float)sampleRate;
+
+                tone = sinf(phase1) * 0.55f +
+                       sinf(phase2) * 0.30f +
+                       sinf(phase3) * 0.15f;
+
+                transient = highNoise * 0.35f;
+                envelope = expf(-time * decay);
+                break;
+            }
+        }
+
+        float value = tone * toneAmount * envelope;
+        value += transient * noiseAmount * noiseGain;
+
+        if (type == DrumHat || type == DrumCymbal)
+            value *= 0.55f + brightness * 0.45f;
+
+        if (type == DrumKick)
+            value += previousNoise * 0.0f;
+
+        previousNoise = noise;
+
+        value *= velocityGain * masterGain * 0.85f;
+        value = Clamp(value, -1.0f, 1.0f);
+
         sample.Data[i] = (int16_t)(value * 30000.0f);
     }
 

@@ -15,14 +15,14 @@
 #include <math.h>
 #include <sys/time.h>
 
-#include "../../vgd/Sound/Sound.hpp"
-#include "../../vgd/Sound/AudioMixer.hpp"
-#include "../../vgd/Sound/Midi.hpp"
-#include "../../vgd/Sound/MidiPcm.hpp"
-#include "../../vgd/Sound/MidiSong.hpp"
-#include "../../vgd/Sound/MidiPlayer.hpp"
-#include "../../vgd/Sound/MusFile.hpp"
-#include "../../vgd/Util/UniquePtr.hpp"
+#include "vgd/Sound/Sound.hpp"
+#include "vgd/Sound/AudioMixer.hpp"
+#include "vgd/Sound/Midi.hpp"
+#include "vgd/Sound/MidiPcm.hpp"
+#include "vgd/Sound/MidiSong.hpp"
+#include "vgd/Sound/MidiPlayer.hpp"
+#include "vgd/Sound/MusFile.hpp"
+#include "vgd/Util/UniquePtr.hpp"
 
 extern "C"
 {
@@ -44,7 +44,7 @@ enum
     DoomMusicSongCount = 16
 };
 
-static Sound SoundOutput;
+static vgd::Sound SoundOutput;
 static vgd::AudioMixer Mixer;
 
 static bool SoundInitialized = false;
@@ -831,7 +831,7 @@ void I_InitSound()
         return;
     }
 
-    Sound::Configuration configuration;
+    vgd::Sound::Configuration configuration;
 
     configuration.SampleRate = DoomDefaultSampleRate;
     configuration.Channels = 2;

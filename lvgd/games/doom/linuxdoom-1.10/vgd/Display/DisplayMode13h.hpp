@@ -46,9 +46,9 @@ namespace vgd
             int y,
             uint8_t color) override;
 
-        uint8_t* GetBackBuffer();
-        int GetBackBufferPitch() const;
-		bool SetPalette(const uint8_t* palette);
+        uint8_t* GetBackBuffer() override;
+        int GetBackBufferPitch() const override;
+		bool SetPalette(const uint8_t* palette) override;
 		
     private:
         static constexpr int VGA_ADDRESS = 0xA0000;

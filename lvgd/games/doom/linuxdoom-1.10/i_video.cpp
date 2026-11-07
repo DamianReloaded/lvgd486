@@ -14,9 +14,10 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#include "DisplayMode13h.hpp"
-#include "Keyboard.hpp"
-#include "Mouse.hpp"
+#include "vgd/Display/DisplayMode13h.hpp"
+#include "vgd/Input/Keyboard.hpp"
+#include "vgd/Input/Joystick.hpp"
+#include "vgd/Input/Mouse.hpp"
 
 extern "C"
 {
@@ -44,16 +45,19 @@ extern "C" void I_DrawFPS(int fps);
 
 typedef vgd::Keyboard KeyboardDevice;
 typedef vgd::Mouse MouseDevice;
+typedef vgd::Joystick JoystickDevice;
 
 static vgd::DisplayMode13h Display;
 static KeyboardDevice KeyboardInput;
 static MouseDevice MouseInput;
+static JoystickDevice JoystickInput;
 
 static byte* VideoBuffer = NULL;
 
 static boolean GraphicsInitialized = false;
 static boolean KeyboardInitialized = false;
 static boolean MouseInitialized = false;
+static boolean JoystickInitialized = false;
 
 static int MouseButtonState = 0;
 
@@ -166,6 +170,69 @@ static void PostKeyboardEvent(evtype_t type, int key)
     D_PostEvent(&event);
 }
 
+static void ProcessJoysticEvents()
+{
+    if (!JoystickInitialized)
+        return;
+
+    JoystickInput.Update();
+
+    // Up
+    int KeyForward = TranslateKey(KeyboardDevice::Key::KeyUp);
+    if (JoystickInput.WasDirectionPressed(vgd::Joystick::DirectionUp) && KeyForward)
+        PostKeyboardEvent(ev_keydown, KeyForward);
+    else if (JoystickInput.WasDirectionReleased(vgd::Joystick::DirectionUp) && KeyForward)
+        PostKeyboardEvent(ev_keyup, KeyForward);
+
+    // Down
+    int KeyBackwards = TranslateKey(KeyboardDevice::Key::KeyDown);
+    if (JoystickInput.WasDirectionPressed(vgd::Joystick::DirectionDown) && KeyBackwards)
+        PostKeyboardEvent(ev_keydown, KeyBackwards);
+    else if (JoystickInput.WasDirectionReleased(vgd::Joystick::DirectionDown) && KeyBackwards)
+        PostKeyboardEvent(ev_keyup, KeyBackwards);
+
+    // Left
+    int KeyLeft = TranslateKey(KeyboardDevice::Key::KeyLeft);
+    if (JoystickInput.WasDirectionPressed(vgd::Joystick::DirectionLeft) && KeyLeft)
+        PostKeyboardEvent(ev_keydown, KeyLeft);
+    else if (JoystickInput.WasDirectionReleased(vgd::Joystick::DirectionLeft) && KeyLeft)
+        PostKeyboardEvent(ev_keyup, KeyLeft);
+
+    // Right
+    int KeyRight = TranslateKey(KeyboardDevice::Key::KeyRight);
+    if (JoystickInput.WasDirectionPressed(vgd::Joystick::DirectionRight) && KeyRight)
+        PostKeyboardEvent(ev_keydown, KeyRight);
+    else if (JoystickInput.WasDirectionReleased(vgd::Joystick::DirectionRight) && KeyRight)
+        PostKeyboardEvent(ev_keyup, KeyRight);
+
+    auto processKey = [](int button, KeyboardDevice::Key key)
+    {
+        int doomkey = TranslateKey(key);
+
+        if (!doomkey)
+            return;
+
+        if (JoystickInput.WasButtonPressed(button))
+            PostKeyboardEvent(ev_keydown, doomkey);
+        else if (JoystickInput.WasButtonReleased(button))
+            PostKeyboardEvent(ev_keyup, doomkey);
+    };
+
+    processKey(0, KeyboardDevice::Key::KeyEnter);      // Shoot
+    processKey(0, KeyboardDevice::Key::KeyLeftCtrl);   // Shoot
+    processKey(1, KeyboardDevice::Key::KeySpace);      // Interact
+    processKey(2, KeyboardDevice::Key::KeyLeftAlt);    // Strafe
+    processKey(3, KeyboardDevice::Key::KeyLeftShift); // Run
+
+    processKey(4, KeyboardDevice::Key::Key1); // Fist
+    processKey(5, KeyboardDevice::Key::Key2); // Gun
+    processKey(6, KeyboardDevice::Key::Key3); // Shotgun
+    processKey(7, KeyboardDevice::Key::Key4); // Chaingun
+    processKey(8, KeyboardDevice::Key::Key5); // Rocket
+    processKey(9, KeyboardDevice::Key::Key6); // Plasma
+    processKey(10, KeyboardDevice::Key::Key7); // Plasma
+}
+
 static void ProcessKeyboardEvents(void)
 {
     if (!KeyboardInitialized)
@@ -190,7 +257,7 @@ static void ProcessKeyboardEvents(void)
             PostKeyboardEvent(ev_keydown, doomKey);
 
         if (KeyboardInput.WasReleased(keyboardKey))
-            PostKeyboardEvent(ev_keyup, doomKey);
+            PostKeyboardEvent(ev_keyup, doomKey);        
     }
 }
 
@@ -267,6 +334,12 @@ extern "C" void I_ShutdownGraphics(void)
         KeyboardInitialized = false;
     }
 
+    if (JoystickInitialized)
+    {
+        JoystickInput.Shutdown();
+        JoystickInitialized = false;
+    }
+
     if (GraphicsInitialized)
     {
         Display.Shutdown();
@@ -291,6 +364,7 @@ extern "C" void I_StartTic(void)
 {
     ProcessKeyboardEvents();
     ProcessMouseEvents();
+    ProcessJoysticEvents();
 }
 
 extern "C" void I_UpdateNoBlit(void)
@@ -382,6 +456,12 @@ extern "C" void I_InitGraphics(void)
 
     KeyboardInitialized = true;
 
+    JoystickInitialized = JoystickInput.Initialize();
+    if (JoystickInitialized)
+    {
+        JoystickInput.SetDeadZone(12000);
+    } 
+
     if (!MouseInput.Initialize())
     {
         KeyboardInput.Shutdown();
@@ -422,7 +502,7 @@ extern "C" void I_InitGraphics(void)
 extern "C" void I_DrawFPS(int fps)
 {
     char text[4];
-    int x = SCREENWIDTH - 4 - 9;
+    int x = SCREENWIDTH - 25;
     int y = 4;
 
     if (fps > 999)
@@ -440,7 +520,10 @@ extern "C" void I_DrawFPS(int fps)
             continue;
         }
 
-        V_DrawPatchDirect(x, y, 0, hu_font[c]);
-        x += 3;
+        patch_t* patch = hu_font[c];
+
+        V_DrawPatchDirect(x, y, 0, patch);
+
+        x += SHORT(patch->width) + 1;
     }
 }

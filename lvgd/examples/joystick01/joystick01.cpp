@@ -3,7 +3,7 @@
 #include "../../vgd/Input/Keyboard.hpp"
 #include "../../vgd/Input/Joystick.hpp"
 #include "../../vgd/Font/BmpFont.hpp"
-#include "../../vgd/Font/BmpFont01.hpp"
+#include "../../vgd/Font/FontArcade01.hpp"
 
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -27,18 +27,7 @@ static void HandleSignal(int signalNumber)
     StopRequested = 1;
 }
 
-static const BMPFont FontFps =
-{
-    Font01::Width,
-    Font01::Height,
-    Font01::FirstDigit,
-    Font01::DigitCount,
-    Font01::FirstUpper,
-    Font01::UpperCount,
-    Font01::GlyphSpace,
-    &Font01::GlyphDigits[0][0],
-    &Font01::GlyphUpper[0][0]
-};
+vgd::FontArcade01 FontFps;
 
 static char* AppendText(char* p, const char* s)
 {
@@ -93,7 +82,6 @@ static int GetAxisMovement(int value)
     else
         value -= deadZone;
 
-    // Return a signed magnitude from approximately -1000 to +1000.
     return value * 1000 / 26767;
 }
 
@@ -107,7 +95,7 @@ static uint8_t GetQuadColor(const Joystick& joystick)
     for (int i = 0; i < joystick.GetButtonCount() &&
                     i < Joystick::MaxButtons; ++i)
     {
-        if (joystick.IsButtonDown(i))
+        if (joystick.IsButtonPressed(i))
             return colors[i % (sizeof(colors) / sizeof(colors[0]))];
     }
 
@@ -123,7 +111,6 @@ static void DrawBackground(DisplayMode13h& display,
     const int width = display.GetWidth();
     const int height = display.GetHeight();
 
-    // Power-of-two tile sizes allow shifts and masks instead of division.
     const int worldYStart = scrollY;
 
     for (int y = 0; y < height; ++y)
@@ -139,7 +126,6 @@ static void DrawBackground(DisplayMode13h& display,
             const int tileX = worldX >> 4;
             const int localX = worldX & 15;
 
-            // Deterministic terrain pattern, with no per-pixel division.
             uint8_t color;
 
             if (localX == 0 || localY == 0)
@@ -214,6 +200,29 @@ static void DrawFrame(DisplayMode13h& display,
     char text[16];
     FormatFPS(text, fps);
     display.DrawText(FontFps, text, 8, 8, 15);
+
+    // Direction indicators.
+    if (joystick.IsDirectionPressed(Joystick::DirectionUp))
+        display.DrawRectangle(150, 8, 8, 8, 12);
+
+    if (joystick.IsDirectionPressed(Joystick::DirectionDown))
+        display.DrawRectangle(150, 24, 8, 8, 12);
+
+    if (joystick.IsDirectionPressed(Joystick::DirectionLeft))
+        display.DrawRectangle(140, 16, 8, 8, 12);
+
+    if (joystick.IsDirectionPressed(Joystick::DirectionRight))
+        display.DrawRectangle(160, 16, 8, 8, 12);
+
+    // Show the last button press as a small indicator.
+    for (int i = 0; i < joystick.GetButtonCount() &&
+                    i < Joystick::MaxButtons; ++i)
+    {
+        if (joystick.WasButtonPressed(i))
+        {
+            display.DrawRectangle(8 + i * 6, 24, 4, 4, 14);
+        }
+    }
 }
 
 static int RunGame(DisplayMode13h& display)
@@ -226,7 +235,6 @@ static int RunGame(DisplayMode13h& display)
     bool joystickInitialized = false;
     int result = 0;
 
-    // Fixed-point scrolling retains subpixel movement between frames.
     int64_t scrollX16 = 0;
     int64_t scrollY16 = 0;
 
@@ -257,19 +265,21 @@ static int RunGame(DisplayMode13h& display)
     if (!joystick.Initialize())
     {
         fprintf(stderr, "Game: no compatible joystick available.\n");
-        result = 1;
-        goto cleanup;
     }
-
-    joystickInitialized = true;
+    else
+    {
+        joystickInitialized = true;
+        joystick.SetDeadZone(6000);
+    }
 
     gettimeofday(&previousTime, NULL);
 
     while (!StopRequested)
     {
-        // Always process pending input before doing any rendering.
         keyboard.Update();
-        joystick.Update();
+
+        if (joystickInitialized)
+            joystick.Update();
 
         if (!keyboard.IsConsoleActive())
             break;
@@ -292,17 +302,21 @@ static int RunGame(DisplayMode13h& display)
 
         previousTime = currentTime;
 
-        // Avoid a large jump after scheduling delays or a debugger pause.
         if (elapsedMilliseconds < 0)
             elapsedMilliseconds = 0;
         else if (elapsedMilliseconds > 50)
             elapsedMilliseconds = 50;
 
-        const int axisX = GetAxisMovement(joystick.GetAxisX());
-        const int axisY = GetAxisMovement(joystick.GetAxisY());
+        int axisX = 0;
+        int axisY = 0;
 
-        // Maximum scrolling speed: 180 pixels per second.
-        // Fixed-point arithmetic preserves small movements at low FPS.
+        if (joystickInitialized)
+        {
+            axisX = GetAxisMovement(joystick.GetAxisX());
+            axisY = GetAxisMovement(joystick.GetAxisY());
+        }
+
+        // Smooth analog movement.
         scrollX16 +=
             static_cast<int64_t>(axisX) * 180 *
             elapsedMilliseconds * 65536 / 1000000;
@@ -310,6 +324,38 @@ static int RunGame(DisplayMode13h& display)
         scrollY16 +=
             static_cast<int64_t>(axisY) * 180 *
             elapsedMilliseconds * 65536 / 1000000;
+
+        // Keyboard directional movement.
+        if (keyboard.IsDown(Keyboard::KeyLeft))
+            scrollX16 -=
+                static_cast<int64_t>(180) *
+                elapsedMilliseconds * 65536 / 1000;
+
+        if (keyboard.IsDown(Keyboard::KeyRight))
+            scrollX16 +=
+                static_cast<int64_t>(180) *
+                elapsedMilliseconds * 65536 / 1000;
+
+        if (keyboard.IsDown(Keyboard::KeyUp))
+            scrollY16 -=
+                static_cast<int64_t>(180) *
+                elapsedMilliseconds * 65536 / 1000;
+
+        if (keyboard.IsDown(Keyboard::KeyDown))
+            scrollY16 +=
+                static_cast<int64_t>(180) *
+                elapsedMilliseconds * 65536 / 1000;
+
+        // D-pad and analog directional state.
+        if (joystickInitialized)
+        {
+            if (joystick.IsDirectionPressed(Joystick::DirectionUp))
+            {
+                // Direction state is already represented by the analog
+                // stick for analog movement. D-pad input can be used here
+                // independently if desired.
+            }
+        }
 
         const int scrollX = static_cast<int>(scrollX16 >> 16);
         const int scrollY = static_cast<int>(scrollY16 >> 16);
@@ -327,10 +373,6 @@ static int RunGame(DisplayMode13h& display)
 
         gettimeofday(&currentTime, NULL);
 
-        const long fpsElapsedMilliseconds =
-            GetElapsedMilliseconds(previousTime, currentTime);
-
-        // Keep the FPS calculation independent of movement timing.
         static struct timeval fpsStartTime;
         static bool fpsTimerStarted = false;
 
@@ -352,8 +394,6 @@ static int RunGame(DisplayMode13h& display)
             fpsFrames = 0;
             fpsStartTime = currentTime;
         }
-
-        (void)fpsElapsedMilliseconds;
     }
 
 cleanup:

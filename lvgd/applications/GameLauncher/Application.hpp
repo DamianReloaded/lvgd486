@@ -2,6 +2,7 @@
 
 #include "../../vgd/Display/DisplayMode13h.hpp"
 #include "../../vgd/Input/Keyboard.hpp"
+#include "../../vgd/Input/Joystick.hpp"
 #include "../../vgd/UI/Panel.hpp"
 #include "../../vgd/UI/Label.hpp"
 #include "../../vgd/Sound/MidiSong.hpp"
@@ -33,6 +34,7 @@ protected:
 
     vgd::DisplayMode13h m_Display;
     vgd::Keyboard m_Keyboard;
+    vgd::Joystick m_Joystick;
     vgd::MenuSound m_Sound;
 
     vgd::MidiFile m_MidiFile;
@@ -44,6 +46,7 @@ protected:
     bool m_Initialized;
     bool m_DisplayInitialized;
     bool m_KeyboardInitialized;
+    bool m_JoystickInitialized;
     bool m_SoundInitialized;
     bool m_FontManagerInitialized;
     bool m_ExitRequested;

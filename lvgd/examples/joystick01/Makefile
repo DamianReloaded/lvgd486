@@ -46,7 +46,7 @@ SRC_DIRS := \
     $(PRJ_DIR)/vgd/font
 
 BIN_DIR := /games/lvgd/demos
-OBJ_DIR := $(PRJ_DIR)/bin/$(PLATFORM)/$(MODE)/obj/$(TARGET_NAME)
+OBJ_DIR := /home/user/lvgd/bin/$(PLATFORM)/$(MODE)/obj/$(TARGET_NAME)
 TARGET := $(BIN_DIR)/$(TARGET_NAME)
 
 # --------------------------------------------------
@@ -152,7 +152,7 @@ $(foreach FILE,$(SRC),$(eval $(call COMPILE_RULE,$(FILE))))
 # --------------------------------------------------
 
 clean:
-	rm -rf "$(BIN_DIR)/obj"
+	rm -rf "$(OBJ_DIR)"
 	rm -f "$(TARGET)"
 
 # --------------------------------------------------

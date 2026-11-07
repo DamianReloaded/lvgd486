@@ -1,3 +1,4 @@
+
 #include "Application.hpp"
 
 #include "../../vgd/Font/FontArcade01.hpp"
@@ -27,6 +28,7 @@ Application::Application()
     : m_Initialized(false),
       m_DisplayInitialized(false),
       m_KeyboardInitialized(false),
+      m_JoystickInitialized(false),
       m_SoundInitialized(false),
       m_FontManagerInitialized(false),
       m_DisplayPaletteSet(false),
@@ -66,6 +68,16 @@ bool Application::Initialize()
         return false;
 
     m_KeyboardInitialized = true;
+
+    if (!m_Joystick.Initialize())
+    {
+        fprintf(stderr, "Game: no compatible joystick available.\n");
+    }
+    else
+    {
+        m_JoystickInitialized = true;
+        m_Joystick.SetDeadZone(6000);
+    }
 
     if (!vgd::UI::FontManager::Initialize())
         return false;
@@ -136,7 +148,7 @@ bool Application::Initialize()
             rowY,
             64,
             40
-        ); 
+        );
 
         m_Thumbnails[i] = thumbnail.Get();
 
@@ -229,6 +241,12 @@ void Application::Shutdown()
         m_KeyboardInitialized = false;
     }
 
+    if (m_JoystickInitialized)
+    {
+        m_Joystick.Shutdown();
+        m_JoystickInitialized = false;
+    }
+
     if (m_DisplayInitialized)
     {
         m_Display.Shutdown();
@@ -316,23 +334,53 @@ void Application::Update()
 {
     m_Keyboard.Update();
 
+    if (m_JoystickInitialized)
+        m_Joystick.Update();
+
+    // Exit
     if (m_Keyboard.IsDown(vgd::Keyboard::KeyEscape))
-        Exit();
-
-    if (m_Keyboard.WasPressed(vgd::Keyboard::KeyUp))
-        m_GameInfo.MoveSelection(-1);
-
-    if (m_Keyboard.WasPressed(vgd::Keyboard::KeyDown))
-        m_GameInfo.MoveSelection(1);
-
-    if (m_Keyboard.WasPressed(vgd::Keyboard::KeyEnter) ||
-        m_Keyboard.WasPressed(vgd::Keyboard::KeyD))
     {
-        LaunchSelectedGame();
+        Exit();
+        return;
     }
 
+    // Navigation
+    const bool moveUp =
+        m_Keyboard.WasPressed(vgd::Keyboard::KeyUp) ||
+        (m_JoystickInitialized &&
+         m_Joystick.WasDirectionPressed(
+             vgd::Joystick::DirectionUp));
+
+    const bool moveDown =
+        m_Keyboard.WasPressed(vgd::Keyboard::KeyDown) ||
+        (m_JoystickInitialized &&
+         m_Joystick.WasDirectionPressed(
+             vgd::Joystick::DirectionDown));
+
+    if (moveUp)
+        m_GameInfo.MoveSelection(-1);
+    else if (moveDown)
+        m_GameInfo.MoveSelection(1);
+
+    // Confirmation
+    const bool confirm =
+        m_Keyboard.WasPressed(vgd::Keyboard::KeyEnter) ||
+        m_Keyboard.WasPressed(vgd::Keyboard::KeyD) ||
+        (m_JoystickInitialized &&
+         m_Joystick.WasButtonPressed(0));
+
+    if (confirm)
+        LaunchSelectedGame();
+
+    if (m_ExitRequested)
+        return;
+
+    // Audio error
     if (m_Sound.GetPlayer().HasError())
+    {
         Exit();
+        return;
+    }
 
     // Receive completed file and image loads from the worker.
     m_GameInfo.Update();
@@ -400,40 +448,13 @@ int Application::Run()
 
     while (!m_ExitRequested)
     {
-const uint64_t currentTime = vgd::Clock::GetTimeNanoseconds();
+        const uint64_t currentTime =
+            vgd::Clock::GetTimeNanoseconds();
 
-if (currentTime < previousTime)
-{
-    printf("CLOCK WENT BACKWARDS! Previous: %llu Current: %llu\n",
-           (unsigned long long)previousTime,
-           (unsigned long long)currentTime);
-}
+        const uint64_t elapsed = currentTime - previousTime;
 
-const uint64_t elapsed = currentTime - previousTime;
-
-if (elapsed > 100000000ULL)
-{
-    printf("LARGE ELAPSED: %llu ns\n",
-           (unsigned long long)elapsed);
-}
-
-previousTime = currentTime;
-
-const uint64_t delta = elapsed * UpdateRate;
-
-if (delta > UpdateThreshold * 10)
-{
-    printf("LARGE DELTA: %llu\n",
-           (unsigned long long)delta);
-}
-
-accumulator += delta;
-
-if (accumulator > UpdateThreshold * 10)
-{
-    printf("LARGE ACCUMULATOR: %llu\n",
-           (unsigned long long)accumulator);
-}
+        previousTime = currentTime;
+        accumulator += elapsed * UpdateRate;
 
         while (accumulator >= UpdateThreshold && !m_ExitRequested)
         {

@@ -32,6 +32,7 @@ MidiPcm::MidiPcm()
         m_InstrumentSlots[i].Note = -1;
         m_InstrumentSlots[i].Age = 0;
         m_InstrumentSlots[i].Procedural = false;
+        m_InstrumentSlots[i].Loop = false;
     }
 }
 
@@ -70,7 +71,6 @@ bool MidiPcm::Initialize(const char* path)
         return true;
 
     InitializeChannels();
-
     memset(m_Voices, 0, sizeof(m_Voices));
 
     for (int i = 0; i < InstrumentSlotCount; ++i)
@@ -79,6 +79,7 @@ bool MidiPcm::Initialize(const char* path)
         m_InstrumentSlots[i].Note = -1;
         m_InstrumentSlots[i].Age = 0;
         m_InstrumentSlots[i].Procedural = false;
+        m_InstrumentSlots[i].Loop = false;
         m_InstrumentSlots[i].Sample.Clear();
     }
 
@@ -153,14 +154,12 @@ int MidiPcm::AllocateInstrumentSlot(int program, int note)
     if (slot >= 0)
         return slot;
 
-    // Prefer unused slots.
     for (int i = 0; i < InstrumentSlotCount; ++i)
     {
         if (m_InstrumentSlots[i].Program < 0)
             return i;
     }
 
-    // Reuse the oldest slot that is not referenced by an active voice.
     int oldestSlot = -1;
     unsigned int oldestAge = 0xFFFFFFFFU;
 
@@ -188,22 +187,37 @@ int MidiPcm::AllocateInstrumentSlot(int program, int note)
     return oldestSlot;
 }
 
-bool MidiPcm::GenerateInstrument(int program, int note, int slot)
+bool MidiPcm::GenerateInstrument(int program, int note, int slot, int velocity)
 {
-    if (program < 0 || program >= InstrumentCount ||
+    if (program < 0 || program > PercussionProgram ||
         note < 0 || note > 127 ||
         slot < 0 || slot >= InstrumentSlotCount)
         return false;
 
     InstrumentSlot& instrumentSlot = m_InstrumentSlots[slot];
+    bool generated = false;
 
-    if (!m_Synthesizer.GenerateLoopSample(
-            program, note, instrumentSlot.Sample))
+    if (program == PercussionProgram)
     {
-        return false;
+        // Drum timbre is velocity-sensitive at generation time. The sample
+        // is cached, while the mixer also applies the note's velocity gain.
+        generated = m_Synthesizer.GenerateDrum(note, 127, instrumentSlot.Sample);
+
+        instrumentSlot.Procedural = false;
+        instrumentSlot.Loop = false;
+    }
+    else
+    {
+        generated = m_Synthesizer.GenerateLoopSample(
+            program, note, instrumentSlot.Sample);
+
+        instrumentSlot.Procedural = true;
+        instrumentSlot.Loop = true;
     }
 
-    instrumentSlot.Procedural = true;
+    if (!generated)
+        return false;
+
     instrumentSlot.Program = program;
     instrumentSlot.Note = note;
     instrumentSlot.Age = ++m_SampleAge;
@@ -211,17 +225,19 @@ bool MidiPcm::GenerateInstrument(int program, int note, int slot)
     m_SampleBankLoaded = true;
 
     fprintf(stderr,
-        "MidiPcm: Generated program=%d note=%d slot=%d rate=%d frames=%d\n",
+        "MidiPcm: Generated %s program=%d note=%d slot=%d rate=%d frames=%d\n",
+        program == PercussionProgram ? "drum" : "instrument",
         program,
         note,
         slot,
         instrumentSlot.Sample.SampleRate,
         instrumentSlot.Sample.GetFrameCount());
 
+    (void)velocity;
     return true;
 }
 
-bool MidiPcm::GetInstrumentSamples(int program, int note, int& slot)
+bool MidiPcm::GetInstrumentSamples(int program, int note, int velocity, int& slot)
 {
     slot = FindInstrumentSlot(program, note);
 
@@ -236,7 +252,7 @@ bool MidiPcm::GetInstrumentSamples(int program, int note, int& slot)
     if (slot < 0)
         return false;
 
-    if (!GenerateInstrument(program, note, slot))
+    if (!GenerateInstrument(program, note, slot, velocity))
         return false;
 
     return true;
@@ -462,9 +478,14 @@ bool MidiPcm::AllocateVoice(int channel, int note, int velocity)
     if (m_Voices[index].Active)
         ReleaseVoice(index);
 
+    const bool percussion = channel == PercussionChannel;
+    const int program = percussion
+        ? PercussionProgram
+        : m_Channels[channel].Program;
+
     int slot = -1;
 
-    if (!GetInstrumentSamples(m_Channels[channel].Program, note, slot))
+    if (!GetInstrumentSamples(program, note, velocity, slot))
         return false;
 
     VoiceState& voice = m_Voices[index];
@@ -472,12 +493,12 @@ bool MidiPcm::AllocateVoice(int channel, int note, int velocity)
     memset(&voice, 0, sizeof(VoiceState));
 
     voice.Active = true;
-    voice.KeyDown = true;
+    voice.KeyDown = !percussion;
     voice.Sustained = false;
     voice.Channel = channel;
     voice.Note = note;
     voice.Velocity = velocity;
-    voice.Program = m_Channels[channel].Program;
+    voice.Program = program;
     voice.MixerVoice = index;
     voice.InstrumentSlot = slot;
     voice.Age = ++m_VoiceAge;
@@ -542,7 +563,9 @@ int MidiPcm::GetSourceRate(const VoiceState& voice) const
             pow(2.0, semitoneDifference / 12.0);
     }
 
-    sourceRate *= pitchBend;
+    // Percussion should not be pitch-bent by the melodic channel controller.
+    if (voice.Channel != PercussionChannel)
+        sourceRate *= pitchBend;
 
     return static_cast<int>(sourceRate + 0.5);
 }
@@ -580,8 +603,10 @@ void MidiPcm::StartMixerVoice(int index)
         voice.InstrumentSlot >= InstrumentSlotCount)
         return;
 
-    const Synthesizer::Sample& sample =
-        m_InstrumentSlots[voice.InstrumentSlot].Sample;
+    const InstrumentSlot& slot =
+        m_InstrumentSlots[voice.InstrumentSlot];
+
+    const Synthesizer::Sample& sample = slot.Sample;
 
     if (sample.Data.Empty())
     {
@@ -601,7 +626,7 @@ void MidiPcm::StartMixerVoice(int index)
             GetSourceRate(voice),
             left,
             right,
-            true,
+            slot.Loop,
             true))
     {
         fprintf(stderr,
@@ -659,6 +684,11 @@ bool MidiPcm::NoteOff(int channel, int note)
         !IsValidChannel(channel) ||
         !IsValidNote(note))
         return false;
+
+    // Percussion notes are one-shot sounds. Their MIDI note-off messages
+    // must not stop the sample or affect sustain handling.
+    if (channel == PercussionChannel)
+        return true;
 
     const int index = FindVoice(channel, note);
 
@@ -723,7 +753,8 @@ bool MidiPcm::ControlChange(int channel, int control, int value)
         {
             const bool enabled = value >= 64;
 
-            if (state.Sustain && !enabled)
+            if (state.Sustain && !enabled &&
+                channel != PercussionChannel)
             {
                 for (int i = 0; i < MaxVoices; ++i)
                 {
@@ -753,32 +784,38 @@ bool MidiPcm::ControlChange(int channel, int control, int value)
             state.Modulation = 0;
             state.Sustain = false;
 
-            for (int i = 0; i < MaxVoices; ++i)
+            if (channel != PercussionChannel)
             {
-                VoiceState& voice = m_Voices[i];
+                for (int i = 0; i < MaxVoices; ++i)
+                {
+                    VoiceState& voice = m_Voices[i];
 
-                if (voice.Active &&
-                    voice.Channel == channel &&
-                    voice.Sustained &&
-                    !voice.KeyDown)
-                    ReleaseVoice(i);
+                    if (voice.Active &&
+                        voice.Channel == channel &&
+                        voice.Sustained &&
+                        !voice.KeyDown)
+                        ReleaseVoice(i);
+                }
             }
             break;
 
         case 123:
-            for (int i = 0; i < MaxVoices; ++i)
+            if (channel != PercussionChannel)
             {
-                VoiceState& voice = m_Voices[i];
+                for (int i = 0; i < MaxVoices; ++i)
+                {
+                    VoiceState& voice = m_Voices[i];
 
-                if (!voice.Active || voice.Channel != channel)
-                    continue;
+                    if (!voice.Active || voice.Channel != channel)
+                        continue;
 
-                voice.KeyDown = false;
+                    voice.KeyDown = false;
 
-                if (state.Sustain)
-                    voice.Sustained = true;
-                else
-                    ReleaseVoice(i);
+                    if (state.Sustain)
+                        voice.Sustained = true;
+                    else
+                        ReleaseVoice(i);
+                }
             }
             break;
 
@@ -947,6 +984,7 @@ void MidiPcm::Shutdown()
         m_InstrumentSlots[i].Note = -1;
         m_InstrumentSlots[i].Age = 0;
         m_InstrumentSlots[i].Procedural = false;
+        m_InstrumentSlots[i].Loop = false;
         m_InstrumentSlots[i].Sample.Clear();
     }
 
@@ -999,6 +1037,7 @@ bool MidiPcm::SetInstrument(int program, int rootNote, const int16_t* samples, i
     instrumentSlot.Note = rootNote;
     instrumentSlot.Age = ++m_SampleAge;
     instrumentSlot.Procedural = false;
+    instrumentSlot.Loop = true;
 
     m_SampleBankLoaded = true;
     return true;

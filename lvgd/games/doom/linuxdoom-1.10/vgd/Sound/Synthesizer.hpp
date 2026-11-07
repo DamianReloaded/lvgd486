@@ -13,7 +13,7 @@ public:
     enum
     {
         InstrumentCount = 128,
-        DefaultSampleRate = 22050,
+        DefaultSampleRate = 44100,
         DefaultDuration = 2000,
         LoopFrameCount = 2048,
         LoopCycles = 8
@@ -79,6 +79,7 @@ public:
 
     bool Generate(int program, int note, int velocity, Sample& sample) const;
     bool GenerateLoopSample(int program, int note, Sample& sample) const;
+    bool GenerateDrum(int note, int velocity, Sample& sample) const;
 
     static float NoteToFrequency(int note);
 

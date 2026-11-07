@@ -88,6 +88,12 @@ public:
     bool SetInstrument(int program, int rootNote, const int16_t* samples, int sampleFrames, int sampleRate);
 
 private:
+    enum
+    {
+        PercussionProgram = InstrumentCount,
+        PercussionChannel = 9
+    };
+
     struct ChannelState
     {
         int Program;
@@ -120,6 +126,7 @@ private:
         unsigned int Age;
         Synthesizer::Sample Sample;
         bool Procedural;
+        bool Loop;
     };
 
     void InitializeChannels();
@@ -135,8 +142,8 @@ private:
 
     int FindInstrumentSlot(int program, int note) const;
     int AllocateInstrumentSlot(int program, int note);
-    bool GenerateInstrument(int program, int note, int slot);
-    bool GetInstrumentSamples(int program, int note, int& slot);
+    bool GenerateInstrument(int program, int note, int slot, int velocity);
+    bool GetInstrumentSamples(int program, int note, int velocity, int& slot);
 
     void StartMixerVoice(int index);
     void UpdateMixerVoice(int index);
