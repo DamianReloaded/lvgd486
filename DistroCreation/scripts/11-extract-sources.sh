@@ -15,6 +15,7 @@ SOURCES_DIR="/home/user/sources"
 
 KERNEL_VERSION="2.4.37.11"
 BUSYBOX_VERSION="1.00"
+SYSLINUX_VERSION="2.11"
 MAKE_VERSION="3.81"
 BINUTILS_VERSION="2.15"
 GCC4_VERSION="4.0.2"
@@ -37,6 +38,7 @@ E2FSPROGS_VERSION="1.37"
 
 KERNEL_ARCHIVE="linux-${KERNEL_VERSION}.tar.bz2"
 BUSYBOX_ARCHIVE="busybox-${BUSYBOX_VERSION}.tar.bz2"
+SYSLINUX_ARCHIVE="syslinux_${SYSLINUX_VERSION}.orig.tar.gz"
 MAKE_ARCHIVE="make-${MAKE_VERSION}.tar.gz"
 BINUTILS_ARCHIVE="binutils-${BINUTILS_VERSION}.tar.bz2"
 GCC4_ARCHIVE="gcc-${GCC4_VERSION}.tar.bz2"
@@ -80,6 +82,7 @@ cd "$DOWNLOAD_DIR" ||
 for archive in \
     "$KERNEL_ARCHIVE" \
     "$BUSYBOX_ARCHIVE" \
+    "$SYSLINUX_ARCHIVE" \
     "$MAKE_ARCHIVE" \
     "$BINUTILS_ARCHIVE" \
     "$GCC4_ARCHIVE" \
@@ -110,6 +113,9 @@ tar -xjf "$KERNEL_ARCHIVE" -C "$SOURCES_DIR"
 
 echo "Extracting BusyBox..."
 tar -xjf "$BUSYBOX_ARCHIVE" -C "$SOURCES_DIR"
+
+echo "Extracting SYSLINUX..."
+tar -xzf "$SYSLINUX_ARCHIVE" -C "$SOURCES_DIR"
 
 echo "Extracting GNU Make..."
 tar -xzf "$MAKE_ARCHIVE" -C "$SOURCES_DIR"
@@ -204,6 +210,7 @@ rename_source()
 
 rename_source "$SOURCES_DIR/linux-${KERNEL_VERSION}" "$SOURCES_DIR/linux"
 rename_source "$SOURCES_DIR/busybox-${BUSYBOX_VERSION}" "$SOURCES_DIR/busybox"
+rename_source "$SOURCES_DIR/syslinux-${SYSLINUX_VERSION}" "$SOURCES_DIR/syslinux"
 rename_source "$SOURCES_DIR/make-${MAKE_VERSION}" "$SOURCES_DIR/make"
 rename_source "$SOURCES_DIR/binutils-${BINUTILS_VERSION}" "$SOURCES_DIR/binutils"
 rename_source "$SOURCES_DIR/gdb-${GDB_VERSION}" "$SOURCES_DIR/gdb"
@@ -340,7 +347,7 @@ echo "All packages extracted successfully."
 echo "Source directory: $SOURCES_DIR"
 echo
 echo "Bash source: $SOURCES_DIR/bash"
-echo "Bash configure: $SOURCES_DIR/bash/configure"
+echo "SYSLINUX source: $SOURCES_DIR/syslinux"
 echo "GRUB source: $SOURCES_DIR/grub"
 echo "Portmap source: $SOURCES_DIR/portmap"
 echo "Portmap Debian patch applied: $PORTMAP_PATCH"

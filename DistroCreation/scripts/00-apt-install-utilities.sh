@@ -7,3 +7,5 @@ apt-get install wget tar gzip bzip2 patch perl
 apt-get install flex bison
 apt-get install libncurses5-dev
 apt-get install grub-disk
+apt-get install nasm
+apt-get install dosfstools

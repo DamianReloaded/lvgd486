@@ -10,11 +10,11 @@ set -eu
 # Environment
 # ------------------------------------------------------------
 
-PATH=/bin:/sbin:/usr/bin:/usr/sbin
+PATH="$PATH:/install-media/bin:/bin:/sbin:/usr/bin:/usr/sbin"
 export PATH
 
 ARCHIVE="${ARCHIVE:-/install-media/distrodev.tar.gz}"
-GRUB="${GRUB:-/bin/grub}"
+GRUB="${GRUB:-grub}"
 MOUNT_POINT="/mnt/lvgd486-target"
 LOCAL_ARCHIVE="${MOUNT_POINT}/.distrodev.tar.gz"
 
@@ -114,9 +114,6 @@ RM=$(find_command rm /bin/rm /usr/bin/rm) ||
 SYNC=$(find_command sync /bin/sync /usr/bin/sync) ||
     fail "sync is missing or not executable."
 
-ID=$(find_command id /bin/id /usr/bin/id) ||
-    fail "id is missing; cannot verify root privileges."
-
 # sleep is normally provided by BusyBox as an applet.
 SLEEP=$(find_command sleep /bin/sleep /usr/bin/sleep) ||
     fail "sleep is missing; required for unmount retries."
@@ -125,30 +122,13 @@ SLEEP=$(find_command sleep /bin/sleep /usr/bin/sleep) ||
 # Locate GRUB Legacy
 # ------------------------------------------------------------
 
-case "$GRUB" in
-    */*)
-        [ -x "$GRUB" ] ||
-            fail "GRUB Legacy shell is missing or not executable: $GRUB"
-        ;;
-
-    *)
-        GRUB_PATH=$(find_command "$GRUB" \
-            "/bin/$GRUB" \
-            "/sbin/$GRUB" \
-            "/usr/bin/$GRUB" \
-            "/usr/sbin/$GRUB") ||
-            fail "GRUB Legacy shell not found: $GRUB"
-
-        GRUB=$GRUB_PATH
-        ;;
-esac
+if ! "$GRUB" --version >/dev/null 2>&1; then
+    fail "GRUB Legacy shell not found or not executable: $GRUB"
+fi
 
 # ------------------------------------------------------------
-# Validate privileges and arguments
+# Validate arguments
 # ------------------------------------------------------------
-
-[ "$("$ID" -u)" = "0" ] ||
-    fail "Run this installer as root."
 
 [ "$#" -eq 1 ] ||
     fail "Usage: install.sh /dev/PARTITION"

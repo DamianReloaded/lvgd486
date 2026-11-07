@@ -13,6 +13,9 @@
 # BusyBox 1.00:
 # https://busybox.net/downloads/busybox-1.00.tar.bz2
 #
+# SYSLINUX 2.11 (original source):
+# https://archive.debian.org/debian-archive/debian/pool/main/s/syslinux/syslinux_2.11.orig.tar.gz
+#
 # GNU Make 3.81:
 # https://ftp.gnu.org/gnu/make/make-3.81.tar.gz
 #
@@ -73,6 +76,7 @@ DOWNLOAD_DIR="/home/user/download"
 
 KERNEL_VERSION="2.4.37.11"
 BUSYBOX_VERSION="1.00"
+SYSLINUX_VERSION="2.11"
 MAKE_VERSION="3.81"
 BINUTILS_VERSION="2.15"
 GCC4_VERSION="4.0.2"
@@ -96,6 +100,7 @@ E2FSPROGS_VERSION="1.37"
 
 KERNEL_ARCHIVE="linux-${KERNEL_VERSION}.tar.bz2"
 BUSYBOX_ARCHIVE="busybox-${BUSYBOX_VERSION}.tar.bz2"
+SYSLINUX_ARCHIVE="syslinux_${SYSLINUX_VERSION}.orig.tar.gz"
 MAKE_ARCHIVE="make-${MAKE_VERSION}.tar.gz"
 BINUTILS_ARCHIVE="binutils-${BINUTILS_VERSION}.tar.bz2"
 GCC4_ARCHIVE="gcc-${GCC4_VERSION}.tar.bz2"
@@ -119,6 +124,7 @@ E2FSPROGS_ARCHIVE="e2fsprogs_${E2FSPROGS_VERSION}.orig.tar.gz"
 
 KERNEL_URL="https://www.kernel.org/pub/linux/kernel/v2.4/${KERNEL_ARCHIVE}"
 BUSYBOX_URL="https://busybox.net/downloads/${BUSYBOX_ARCHIVE}"
+SYSLINUX_URL="https://archive.debian.org/debian-archive/debian/pool/main/s/syslinux/${SYSLINUX_ARCHIVE}"
 MAKE_URL="https://ftp.gnu.org/gnu/make/${MAKE_ARCHIVE}"
 BINUTILS_URL="https://ftp.gnu.org/gnu/binutils/${BINUTILS_ARCHIVE}"
 GCC4_URL="https://ftp.gnu.org/pub/gnu/gcc/gcc-${GCC4_VERSION}/${GCC4_ARCHIVE}"
@@ -149,6 +155,7 @@ cd "$DOWNLOAD_DIR" || exit 1
 
 wget -c "$KERNEL_URL" || exit 1
 wget -c "$BUSYBOX_URL" || exit 1
+wget -c "$SYSLINUX_URL" || exit 1
 wget -c "$MAKE_URL" || exit 1
 wget -c "$BINUTILS_URL" || exit 1
 wget -c "$GCC4_URL" || exit 1
@@ -173,5 +180,6 @@ wget -c "$E2FSPROGS_URL" || exit 1
 echo
 echo "All source archives downloaded successfully."
 echo "Download directory: $DOWNLOAD_DIR"
+echo "SYSLINUX source: $DOWNLOAD_DIR/$SYSLINUX_ARCHIVE"
 echo "GRUB source: $DOWNLOAD_DIR/$GRUB_ARCHIVE"
 echo "E2FSPROGS source: $DOWNLOAD_DIR/$E2FSPROGS_ARCHIVE"

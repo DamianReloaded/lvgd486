@@ -1,3 +1,3 @@
 ::sysinit:/etc/init.d/rcS
 ::respawn:/bin/su - game -c "exec /bin/bash -l"
-::ctrlaltdel:/sbin/reboot
+::ctrlaltdel:/bin/reboot

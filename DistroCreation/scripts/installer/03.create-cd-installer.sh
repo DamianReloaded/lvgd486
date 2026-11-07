@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 # ============================================================
@@ -6,7 +7,7 @@
 # GRUB Legacy El Torito boot image.
 # Uses a compressed ext2 initrd for early boot.
 # Searches ISO9660 CD-ROM media after the kernel starts.
-# Includes BusyBox, distro utilities and static e2fsprogs.
+# Includes BusyBox, distro utilities, static GRUB and e2fsprogs.
 # ============================================================
 
 set -eu
@@ -25,16 +26,14 @@ BUSYBOX="${DISTRO_ROOT}/bin/busybox"
 DISTRO_BIN="${DISTRO_ROOT}/bin"
 DISTRO_SBIN="${DISTRO_ROOT}/sbin"
 
-KERNEL="/home/user/sources/linux/arch/i386/boot/bzImage"
+KERNEL="${DISTRO_ROOT}/boot/bzImage"
 KERNEL_CONFIG="/home/user/sources/linux/.config"
 
 GRUB_SHELL="/home/user/sources/build/grub/grub/grub"
 GRUB_DIR="/home/user/doc/grub-stage-files"
 
-# GRUB Legacy El Torito boot image.
 ELTORITO_STAGE="${ELTORITO_STAGE:-/home/user/sources/build/grub/stage2/stage2_eltorito}"
 
-# Built e2fsprogs 1.37 static i386 utilities.
 E2FSPROGS_BUILD="/home/user/sources/build/e2fsprogs"
 
 E2FS_MKE2FS="${E2FSPROGS_BUILD}/misc/mke2fs"
@@ -65,7 +64,6 @@ MKE2FS="$(command -v mke2fs || true)"
 E2FSCK="$(command -v e2fsck || true)"
 LOSSETUP="$(command -v losetup || true)"
 FILE="$(command -v file || true)"
-LDD="$(command -v ldd || true)"
 
 MKISOFS="$(command -v mkisofs || true)"
 GENISOIMAGE="$(command -v genisoimage || true)"
@@ -111,6 +109,46 @@ cleanup()
 
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
+
+# ------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------
+
+ValidateStaticI386()
+{
+    binary="$1"
+    description="$2"
+
+    [ -f "$binary" ] ||
+        fail "${description} not found: ${binary}"
+
+    [ -x "$binary" ] ||
+        fail "${description} is not executable: ${binary}"
+
+    binary_info="$("$FILE" "$binary")"
+    echo "$binary_info"
+
+    case "$binary_info" in
+        *"ELF 32-bit"*80386*) ;;
+        *"ELF 32-bit"*i386*) ;;
+        *)
+            fail "${description} is not a 32-bit x86 ELF executable: ${binary}"
+            ;;
+    esac
+
+    case "$binary_info" in
+        *"statically linked"*) ;;
+        *)
+            fail "${description} is not statically linked: ${binary}"
+            ;;
+    esac
+
+    case "$binary_info" in
+        *"dynamically linked"*)
+            fail "${description} has dynamic linkage: ${binary}"
+            ;;
+    esac
+}
 
 # ------------------------------------------------------------
 # Preflight checks
@@ -172,16 +210,27 @@ fi
 for utility in \
     dd cp mkdir chmod ln mknod mount umount \
     tar gzip grep awk sort cmp ls cat rm \
-    sync mktemp dirname id sleep
+    sync mktemp dirname id sleep printf
 do
     command -v "$utility" >/dev/null 2>&1 ||
         fail "Required utility not found: $utility"
 done
 
 # ------------------------------------------------------------
+# Validate static GRUB executable
+# ------------------------------------------------------------
+
+echo "Checking statically linked GRUB executable..."
+
+ValidateStaticI386 "$GRUB_SHELL" "GRUB"
+
+echo "GRUB is a static 32-bit x86 executable."
+
+# ------------------------------------------------------------
 # Validate static e2fsprogs utilities
 # ------------------------------------------------------------
 
+echo
 echo "Checking statically linked e2fsprogs utilities..."
 
 for binary in \
@@ -191,53 +240,14 @@ for binary in \
     "$E2FS_DUMPE2FS" \
     "$E2FS_RESIZE2FS"
 do
-    [ -f "$binary" ] ||
-        fail "Required e2fsprogs binary not found: $binary"
-
-    [ -x "$binary" ] ||
-        fail "Required e2fsprogs binary is not executable: $binary"
-
-    binary_info="$("$FILE" "$binary")"
-    echo "$binary_info"
-
-    case "$binary_info" in
-        *"ELF 32-bit"*80386*) ;;
-        *"ELF 32-bit"*i386*) ;;
-        *)
-            fail "e2fsprogs binary is not a 32-bit x86 ELF executable: $binary"
-            ;;
-    esac
-
-    case "$binary_info" in
-        *"statically linked"*) ;;
-        *)
-            fail "e2fsprogs binary is not statically linked: $binary"
-            ;;
-    esac
-
-    case "$binary_info" in
-        *"dynamically linked"*)
-            fail "e2fsprogs binary has dynamic linkage: $binary"
-            ;;
-    esac
+    ValidateStaticI386 "$binary" "e2fsprogs utility"
 done
 
 echo "All e2fsprogs utilities are static 32-bit x86 executables."
 
 # ------------------------------------------------------------
-# Validate GRUB boot files
+# Validate GRUB boot files and installer archive
 # ------------------------------------------------------------
-
-GRUB_INFO="$("$FILE" "$GRUB_SHELL")"
-echo "$GRUB_INFO"
-
-case "$GRUB_INFO" in
-    *"ELF 32-bit"*80386*) ;;
-    *"ELF 32-bit"*i386*) ;;
-    *)
-        fail "GRUB shell must be a 32-bit x86 executable."
-        ;;
-esac
 
 for stage in stage1 stage2
 do
@@ -255,6 +265,7 @@ tar -tzf "$ARCHIVE" >/dev/null ||
 # Validate kernel configuration
 # ------------------------------------------------------------
 
+echo
 echo "Checking kernel configuration..."
 
 for option in \
@@ -268,13 +279,11 @@ do
     fi
 done
 
-# At least one supported CD-ROM driver must be built in.
 if ! grep -qx 'CONFIG_BLK_DEV_IDECD=y' "$KERNEL_CONFIG" &&
    ! grep -qx 'CONFIG_BLK_DEV_SR=y' "$KERNEL_CONFIG"; then
     fail "Enable CONFIG_BLK_DEV_IDECD=y or CONFIG_BLK_DEV_SR=y in the kernel."
 fi
 
-# A SCSI CD-ROM driver requires SCSI support as well.
 if grep -qx 'CONFIG_BLK_DEV_SR=y' "$KERNEL_CONFIG" &&
    ! grep -qx 'CONFIG_SCSI=y' "$KERNEL_CONFIG"; then
     fail "CONFIG_BLK_DEV_SR=y requires CONFIG_SCSI=y."
@@ -292,9 +301,6 @@ WORK="$(mktemp -d /tmp/lvgd486-cd.XXXXXX)"
 ISO_ROOT="${WORK}/iso-root"
 INITRD_RAW="${WORK}/installer-initrd.img"
 INITRD_GZ="${WORK}/installer-initrd.gz"
-
-GRUB_LIBS_FILE="${WORK}/grub-libraries"
-LIBRARIES_LIST="${WORK}/libraries.list"
 ISO_INFO="${WORK}/iso-info.txt"
 
 mkdir -p "$IMAGE_DIR"
@@ -330,8 +336,7 @@ echo
 
 echo "Creating initrd filesystem..."
 
-dd if=/dev/zero of="$INITRD_RAW" \
-    bs=1048576 count="$INITRD_SIZE_MB"
+dd if=/dev/zero of="$INITRD_RAW" bs=1048576 count="$INITRD_SIZE_MB"
 
 "$MKE2FS" -F -r 0 -b "$BLOCK_SIZE" "$INITRD_RAW"
 
@@ -348,14 +353,11 @@ MOUNTED=1
 echo "Creating initrd directory structure..."
 
 mkdir -p "$MOUNT_POINT/bin"
-mkdir -p "$MOUNT_POINT/boot/grub"
 mkdir -p "$MOUNT_POINT/dev"
 mkdir -p "$MOUNT_POINT/install-media"
-mkdir -p "$MOUNT_POINT/lib"
 mkdir -p "$MOUNT_POINT/proc"
 mkdir -p "$MOUNT_POINT/sbin"
 mkdir -p "$MOUNT_POINT/tmp"
-mkdir -p "$MOUNT_POINT/usr/lib"
 
 # ------------------------------------------------------------
 # Copy distro utilities
@@ -370,41 +372,6 @@ cp -a "$DISTRO_SBIN/." "$MOUNT_POINT/sbin/"
     fail "Copied BusyBox is missing or not executable."
 
 chmod 755 "$MOUNT_POINT/bin/busybox"
-
-# ------------------------------------------------------------
-# Copy GRUB executable and runtime libraries
-# ------------------------------------------------------------
-
-echo "Copying GRUB executable into initrd..."
-
-cp -p "$GRUB_SHELL" "$MOUNT_POINT/bin/grub"
-chmod 755 "$MOUNT_POINT/bin/grub"
-
-if [ -n "$LDD" ]; then
-    "$LDD" "$GRUB_SHELL" > "$GRUB_LIBS_FILE" 2>&1 || true
-
-    if grep "not found" "$GRUB_LIBS_FILE" >/dev/null 2>&1; then
-        cat "$GRUB_LIBS_FILE" >&2
-        fail "GRUB has unresolved runtime libraries."
-    fi
-
-    awk '
-        /=> \// { print $3 }
-        /^\//   { print $1 }
-    ' "$GRUB_LIBS_FILE" | sort -u > "$LIBRARIES_LIST"
-
-    while IFS= read -r library
-    do
-        [ -f "$library" ] || continue
-
-        destination="${MOUNT_POINT}${library}"
-        mkdir -p "$(dirname "$destination")"
-        cp -L "$library" "$destination"
-    done < "$LIBRARIES_LIST"
-fi
-
-# Include GRUB stages used by the installed system.
-cp -a "$GRUB_DIR/." "$MOUNT_POINT/boot/grub/"
 
 # ------------------------------------------------------------
 # Create device nodes in initrd
@@ -437,8 +404,7 @@ do
         h) ideMajor=34; ideBase=64 ;;
     esac
 
-    mknod -m 660 "$MOUNT_POINT/dev/hd${disk}" \
-        b "$ideMajor" "$ideBase"
+    mknod -m 660 "$MOUNT_POINT/dev/hd${disk}" b "$ideMajor" "$ideBase"
 
     for partition in 1 2 3 4 5 6 7 8
     do
@@ -453,8 +419,7 @@ do
     diskLetter=$(printf "\\$(printf '%03o' $((97 + diskNumber)))")
     diskMinor=$((diskNumber * 16))
 
-    mknod -m 660 "$MOUNT_POINT/dev/sd${diskLetter}" \
-        b 8 "$diskMinor"
+    mknod -m 660 "$MOUNT_POINT/dev/sd${diskLetter}" b 8 "$diskMinor"
 
     for partition in 1 2 3 4 5 6 7 8
     do
@@ -466,8 +431,7 @@ done
 # SCSI CD-ROM devices: major 11.
 for cdNumber in 0 1 2 3
 do
-    mknod -m 660 "$MOUNT_POINT/dev/scd${cdNumber}" \
-        b 11 "$cdNumber"
+    mknod -m 660 "$MOUNT_POINT/dev/scd${cdNumber}" b 11 "$cdNumber"
 done
 
 # ------------------------------------------------------------
@@ -492,8 +456,6 @@ media_found=0
 
 while [ "$attempt" -lt 30 ]
 do
-    # IDE optical drives are commonly hdc or hdd.
-    # Scan the remaining IDE devices too, allowing different hardware.
     for device in \
         /dev/hdc /dev/hdd /dev/hdb /dev/hda \
         /dev/hde /dev/hdf /dev/hdg /dev/hdh \
@@ -543,7 +505,7 @@ chmod 755 "$MOUNT_POINT/linuxrc"
 cat > "$MOUNT_POINT/sbin/init" <<'INIT'
 #!/bin/sh
 
-export PATH=/install-media/sbin:/install-media/bin:/bin:/sbin
+export PATH=/install-media/bin:/install-media/sbin:/bin:/sbin
 export HOME=/
 export PS1='LVGD486# '
 
@@ -561,6 +523,7 @@ if [ -f /install-media/distrodev.tar.gz ]; then
     echo
     echo "Filesystem utilities available:"
     echo "  mke2fs, e2fsck, tune2fs, dumpe2fs, resize2fs"
+    echo "GRUB Legacy is available at /install-media/bin/grub."
     echo
     echo "Prepare the destination disk using fdisk."
     echo "Then run the installer, for example:"
@@ -584,9 +547,6 @@ chmod 755 "$MOUNT_POINT/sbin/init"
 [ -s "$MOUNT_POINT/bin/busybox" ] ||
     fail "BusyBox missing from initrd."
 
-[ -s "$MOUNT_POINT/bin/grub" ] ||
-    fail "GRUB executable missing from initrd."
-
 [ -x "$MOUNT_POINT/bin/mount" ] ||
     [ -x "$MOUNT_POINT/sbin/mount" ] ||
     fail "mount command missing from initrd."
@@ -596,12 +556,6 @@ chmod 755 "$MOUNT_POINT/sbin/init"
 
 [ -s "$MOUNT_POINT/sbin/init" ] ||
     fail "init missing from initrd."
-
-[ -s "$MOUNT_POINT/boot/grub/stage1" ] ||
-    fail "GRUB stage1 missing from initrd."
-
-[ -s "$MOUNT_POINT/boot/grub/stage2" ] ||
-    fail "GRUB stage2 missing from initrd."
 
 sync
 
@@ -625,37 +579,46 @@ gzip -t "$INITRD_GZ"
 echo "Creating ISO directory structure..."
 
 mkdir -p "$ISO_ROOT/bin"
-mkdir -p "$ISO_ROOT/sbin"
 mkdir -p "$ISO_ROOT/boot/grub"
+mkdir -p "$ISO_ROOT/sbin"
 
 # ------------------------------------------------------------
-# Copy El Torito boot image
+# Copy El Torito boot image and GRUB stages
 # ------------------------------------------------------------
 
-echo "Copying GRUB El Torito boot image..."
+echo "Copying GRUB boot files..."
 
-cp -p "$ELTORITO_STAGE" \
-    "$ISO_ROOT/boot/grub/stage2_eltorito"
-
-# mkisofs/genisoimage updates the boot-info table in this file.
+cp -p "$ELTORITO_STAGE" "$ISO_ROOT/boot/grub/stage2_eltorito"
 chmod u+w "$ISO_ROOT/boot/grub/stage2_eltorito"
 
-# Preserve ordinary GRUB stages for use by the installer.
 cp -a "$GRUB_DIR/." "$ISO_ROOT/boot/grub/"
 
 # Restore the dedicated El Torito image after copying the stage directory.
-cp -p "$ELTORITO_STAGE" \
-    "$ISO_ROOT/boot/grub/stage2_eltorito"
-
+cp -p "$ELTORITO_STAGE" "$ISO_ROOT/boot/grub/stage2_eltorito"
 chmod u+w "$ISO_ROOT/boot/grub/stage2_eltorito"
 
 # ------------------------------------------------------------
-# Copy utilities to the CD
+# Copy statically linked GRUB executable
 # ------------------------------------------------------------
 
-echo "Copying BusyBox and e2fsprogs utilities..."
+echo "Copying statically linked GRUB executable to ISO..."
 
-cp -p "$BUSYBOX" "$ISO_ROOT/bin/busybox"
+cp -p "$GRUB_SHELL" "$ISO_ROOT/bin/grub"
+chmod 755 "$ISO_ROOT/bin/grub"
+
+ValidateStaticI386 "$ISO_ROOT/bin/grub" "ISO GRUB executable"
+
+# ------------------------------------------------------------
+# Copy distro binaries and BusyBox applets to the CD
+# ------------------------------------------------------------
+
+echo "Copying distro bin directory to ISO..."
+
+cp -a "$DISTRO_BIN/." "$ISO_ROOT/bin/"
+
+[ -x "$ISO_ROOT/bin/busybox" ] ||
+    fail "BusyBox missing from ISO."
+
 chmod 755 "$ISO_ROOT/bin/busybox"
 
 cp -p "$E2FS_MKE2FS" "$ISO_ROOT/sbin/mke2fs"
@@ -707,6 +670,12 @@ echo "Verifying ISO staging directory..."
 [ -s "$ISO_ROOT/boot/grub/stage2_eltorito" ] ||
     fail "El Torito boot image missing from ISO staging directory."
 
+[ -s "$ISO_ROOT/boot/grub/stage1" ] ||
+    fail "GRUB stage1 missing from ISO staging directory."
+
+[ -s "$ISO_ROOT/boot/grub/stage2" ] ||
+    fail "GRUB stage2 missing from ISO staging directory."
+
 [ -s "$ISO_ROOT/boot/bzImage" ] ||
     fail "Kernel missing from ISO staging directory."
 
@@ -721,6 +690,11 @@ echo "Verifying ISO staging directory..."
 
 [ -s "$ISO_ROOT/boot/grub/menu.lst" ] ||
     fail "GRUB menu missing from ISO staging directory."
+
+[ -x "$ISO_ROOT/bin/grub" ] ||
+    fail "GRUB executable missing from ISO staging directory."
+
+ValidateStaticI386 "$ISO_ROOT/bin/grub" "Staged GRUB executable"
 
 gzip -t "$ISO_ROOT/boot/installer-initrd.gz"
 
@@ -739,20 +713,7 @@ do
     [ -x "$destination" ] ||
         fail "e2fsprogs utility is not executable: $binary"
 
-    binary_info="$("$FILE" "$destination")"
-
-    case "$binary_info" in
-        *"statically linked"*) ;;
-        *)
-            fail "e2fsprogs utility is not static: $destination"
-            ;;
-    esac
-
-    case "$binary_info" in
-        *"dynamically linked"*)
-            fail "e2fsprogs utility is dynamically linked: $destination"
-            ;;
-    esac
+    ValidateStaticI386 "$destination" "Staged e2fsprogs utility"
 
     echo "Verified: /sbin/${binary}"
 done
@@ -797,7 +758,6 @@ else
     echo "Install the host ISO utilities package for additional validation."
 fi
 
-# Check the image format when the host file utility recognizes it.
 ISO_FILE_INFO="$("$FILE" "$CD_ISO")"
 echo "$ISO_FILE_INFO"
 
@@ -818,9 +778,12 @@ echo
 echo "ISO contents:"
 echo "  /boot/grub/stage2_eltorito"
 echo "  /boot/grub/menu.lst"
+echo "  /boot/grub/stage1"
+echo "  /boot/grub/stage2"
 echo "  /boot/bzImage"
 echo "  /boot/installer-initrd.gz"
 echo "  /bin/busybox"
+echo "  /bin/grub (statically linked)"
 echo "  /sbin/mke2fs"
 echo "  /sbin/e2fsck"
 echo "  /sbin/tune2fs"
