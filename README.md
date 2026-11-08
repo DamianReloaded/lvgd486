@@ -1,6 +1,6 @@
-# LVGD486
-
 <p align="right">Last update: 2026-11-08</p>
+
+# LVGD486
 
 **[ LINUX VINTAGE GAME DEVELOPMENT DISTRO ]**
 
