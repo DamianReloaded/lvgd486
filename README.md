@@ -393,3 +393,30 @@ Choose your tools, explore the source code, and start creating games for machine
 **LVGD486 :: VINTAGE HARDWARE / OPEN SOURCE / GAME DEVELOPMENT**
 
 </p>
+
+---
+
+## [INSTALL] :: Install LVGD486 to Disk
+
+Check the [video tutorial](https://www.youtube.com/watch?v=KM_DPYtLR3c).
+
+Or get the [pre-installed VHD](https://github.com/DamianReloaded/vhd/raw/refs/heads/main/lvgd486dev.7z?download=).
+
+This tutorial explains how to install LVGD486 from the bootable installation CD onto a hard disk. We will mount the installation media, identify the target disk, create a root partition and a swap partition, prepare both partitions, and run the installer.
+
+> **[!] DATA LOSS WARNING**
+>
+> Partitioning and formatting can permanently destroy existing data. The commands below assume that `/dev/ide/host0/bus0/target0/lun0/disc` is the intended installation disk. Verify the device carefully before continuing. Do not proceed if you are unsure which disk you have selected.
+
+### 00 > Boot up LVGD CD or Floppy disk
+
+*NOTE: Legacy PCs may not have a BIOS option for booting from a CD. In that case, you will need to boot from the LVGD floppy disk, let the system detect your CD-ROM drives, mount the CD, partition the disk, and run the installer. You will need to do this in an 86Box machine emulating a motherboard with an older BIOS.*
+
+Insert the installation CD or floppy and boot from it. Once startup is complete, you should be presented with a bash prompt. The floppy is slow so wait for it.
+
+### 01 > Mount the Installation CD
+
+First, mount the CD-ROM containing the LVGD486 installer. This is important because the `mke2fs` and `mkswap` utilities used to prepare the target partitions are provided by the installation media.
+
+```bash
+mount /dev/cdroms/cdrom0 /install-media/
