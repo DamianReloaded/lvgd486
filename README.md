@@ -392,7 +392,7 @@ This tutorial explains how to install LVGD486 from the bootable installation CD 
 
 ## 00 > Boot up LVGD CD or Floppy Disk
 
-*NOTE: Legacy PCs may not have a BIOS option for booting from a CD. In that case, you will need to boot from the LVGD floppy disk, let the system detect your CD-ROM drives, mount the CD, partition the disk, and run the installer. You will need to do this in an 86Box machine emulating a motherboard with an older BIOS.*
+*NOTE: Legacy PCs may not have a BIOS option for booting from a CD. In that case, you will need to boot from the LVGD floppy disk, let the system detect your CD-ROM drives, mount the CD, partition the disk, and run the installer. You will also need to do this when using an 86Box machine emulating a motherboard with an older BIOS.*
 
 Insert the installation CD or floppy and boot from it. Once startup is complete, you should be presented with a bash prompt. The floppy is slow, so wait for it.
 
