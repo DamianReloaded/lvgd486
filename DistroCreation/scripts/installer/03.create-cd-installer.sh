@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 # ============================================================
@@ -26,8 +25,10 @@ BUSYBOX="${DISTRO_ROOT}/bin/busybox"
 DISTRO_BIN="${DISTRO_ROOT}/bin"
 DISTRO_SBIN="${DISTRO_ROOT}/sbin"
 
-KERNEL="${DISTRO_ROOT}/boot/bzImage"
-KERNEL_CONFIG="/home/user/sources/linux/.config"
+KERNEL_SOURCE="/home/user/sources/linux"
+KERNEL_CONFIG_SOURCE="/home/user/doc/kernel-2.4-config/installer/.config"
+KERNEL_CONFIG="${KERNEL_SOURCE}/.config"
+KERNEL="${KERNEL_SOURCE}/arch/i386/boot/bzImage"
 
 GRUB_SHELL="/home/user/sources/build/grub/grub/grub"
 GRUB_DIR="/home/user/doc/grub-stage-files"
@@ -166,11 +167,11 @@ ValidateStaticI386()
 [ -d "$DISTRO_SBIN" ] ||
     fail "Distro sbin directory not found: $DISTRO_SBIN"
 
-[ -f "$KERNEL" ] ||
-    fail "Kernel not found: $KERNEL"
+[ -d "$KERNEL_SOURCE" ] ||
+    fail "Kernel source directory not found: $KERNEL_SOURCE"
 
-[ -f "$KERNEL_CONFIG" ] ||
-    fail "Kernel configuration not found: $KERNEL_CONFIG"
+[ -f "$KERNEL_CONFIG_SOURCE" ] ||
+    fail "Installer kernel configuration not found: $KERNEL_CONFIG_SOURCE"
 
 [ -f "$ARCHIVE" ] ||
     fail "Installer archive not found: $ARCHIVE"
@@ -210,7 +211,8 @@ fi
 for utility in \
     dd cp mkdir chmod ln mknod mount umount \
     tar gzip grep awk sort cmp ls cat rm \
-    sync mktemp dirname id sleep printf
+    sync mktemp dirname id sleep printf \
+    make gcc-3.3 yes
 do
     command -v "$utility" >/dev/null 2>&1 ||
         fail "Required utility not found: $utility"
@@ -262,37 +264,6 @@ tar -tzf "$ARCHIVE" >/dev/null ||
     fail "Output already exists: $CD_ISO"
 
 # ------------------------------------------------------------
-# Validate kernel configuration
-# ------------------------------------------------------------
-
-echo
-echo "Checking kernel configuration..."
-
-for option in \
-    CONFIG_BLK_DEV_INITRD \
-    CONFIG_BLK_DEV_RAM \
-    CONFIG_EXT2_FS \
-    CONFIG_ISO9660_FS
-do
-    if ! grep -qx "${option}=y" "$KERNEL_CONFIG"; then
-        fail "${option} must be built into the kernel (=y)."
-    fi
-done
-
-if ! grep -qx 'CONFIG_BLK_DEV_IDECD=y' "$KERNEL_CONFIG" &&
-   ! grep -qx 'CONFIG_BLK_DEV_SR=y' "$KERNEL_CONFIG"; then
-    fail "Enable CONFIG_BLK_DEV_IDECD=y or CONFIG_BLK_DEV_SR=y in the kernel."
-fi
-
-if grep -qx 'CONFIG_BLK_DEV_SR=y' "$KERNEL_CONFIG" &&
-   ! grep -qx 'CONFIG_SCSI=y' "$KERNEL_CONFIG"; then
-    fail "CONFIG_BLK_DEV_SR=y requires CONFIG_SCSI=y."
-fi
-
-echo "Required initrd, RAM disk, ext2 and ISO9660 options are built in."
-echo "A built-in CD-ROM driver is configured."
-
-# ------------------------------------------------------------
 # Prepare temporary directories
 # ------------------------------------------------------------
 
@@ -325,15 +296,79 @@ echo "--------------------"
 echo "ISO:              $CD_ISO"
 echo "ISO builder:      $ISO_BUILDER"
 echo "El Torito image:  $ELTORITO_STAGE"
+echo "Kernel source:    $KERNEL_SOURCE"
+echo "Kernel config:    $KERNEL_CONFIG_SOURCE"
 echo "Initrd raw size:  ${INITRD_SIZE_MB} MiB"
 echo "Initrd RAM size:  ${INITRD_RAM_SIZE_KB} KiB"
 echo "Filesystem:       ext2 revision 0"
 echo
 
 # ============================================================
+# Configure and build Linux kernel
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Building Linux kernel"
+echo "============================================================"
+
+cp "$KERNEL_CONFIG_SOURCE" "$KERNEL_CONFIG"
+
+cd "$KERNEL_SOURCE"
+
+echo "Running kernel oldconfig..."
+
+yes "n" | make ARCH=i386 CC=gcc-3.3 oldconfig
+
+echo "Building kernel dependencies..."
+
+make ARCH=i386 CC=gcc-3.3 dep
+
+echo "Compiling kernel..."
+
+make ARCH=i386 CC=gcc-3.3 bzImage
+
+[ -s "$KERNEL" ] ||
+    fail "Kernel build failed or bzImage is missing: $KERNEL"
+
+echo "Kernel build successful."
+
+# ------------------------------------------------------------
+# Validate kernel configuration
+# ------------------------------------------------------------
+
+echo
+echo "Checking kernel configuration..."
+
+for option in \
+    CONFIG_BLK_DEV_INITRD \
+    CONFIG_BLK_DEV_RAM \
+    CONFIG_EXT2_FS \
+    CONFIG_ISO9660_FS
+do
+    if ! grep -qx "${option}=y" "$KERNEL_CONFIG"; then
+        fail "${option} must be built into the kernel (=y)."
+    fi
+done
+
+if ! grep -qx 'CONFIG_BLK_DEV_IDECD=y' "$KERNEL_CONFIG" &&
+   ! grep -qx 'CONFIG_BLK_DEV_SR=y' "$KERNEL_CONFIG"; then
+    fail "Enable CONFIG_BLK_DEV_IDECD=y or CONFIG_BLK_DEV_SR=y in the kernel."
+fi
+
+if grep -qx 'CONFIG_BLK_DEV_SR=y' "$KERNEL_CONFIG" &&
+   ! grep -qx 'CONFIG_SCSI=y' "$KERNEL_CONFIG"; then
+    fail "CONFIG_BLK_DEV_SR=y requires CONFIG_SCSI=y."
+fi
+
+echo "Required initrd, RAM disk, ext2 and ISO9660 options are built in."
+echo "A built-in CD-ROM driver is configured."
+
+# ============================================================
 # Build the compressed ext2 initrd
 # ============================================================
 
+echo
 echo "Creating initrd filesystem..."
 
 dd if=/dev/zero of="$INITRD_RAW" bs=1048576 count="$INITRD_SIZE_MB"

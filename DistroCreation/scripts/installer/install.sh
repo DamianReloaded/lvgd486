@@ -30,7 +30,6 @@ MKDIR=""
 CP=""
 RM=""
 SYNC=""
-ID=""
 
 MOUNTED=0
 MAP=""
@@ -130,10 +129,28 @@ fi
 # Validate arguments
 # ------------------------------------------------------------
 
-[ "$#" -eq 1 ] ||
-    fail "Usage: install.sh /dev/PARTITION"
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] ||
+    fail "Usage: install.sh /dev/PARTITION [lba]"
 
 TARGET_PART=$1
+GRUB_LBA=0
+
+if [ "$#" -eq 2 ]; then
+    case "$2" in
+        lba)
+            GRUB_LBA=1
+            ;;
+        *)
+            fail "Unknown parameter: $2. Supported parameter: lba"
+            ;;
+    esac
+fi
+
+if [ "$GRUB_LBA" -eq 1 ]; then
+    GRUB_SETUP_OPTION="--force-lba"
+else
+    GRUB_SETUP_OPTION=""
+fi
 
 [ -b "$TARGET_PART" ] ||
     fail "Not a block device: $TARGET_PART"
@@ -265,6 +282,7 @@ echo "Parent disk:          $TARGET_DISK"
 echo "GRUB BIOS disk:       $GRUB_DISK"
 echo "GRUB partition:       $GRUB_ROOT"
 echo "GRUB MBR destination: $GRUB_DISK_ROOT"
+echo "GRUB LBA mode:        $([ "$GRUB_LBA" -eq 1 ] && echo enabled || echo disabled)"
 echo "Source archive:       $ARCHIVE"
 echo "Local archive:        $LOCAL_ARCHIVE"
 echo
@@ -447,11 +465,12 @@ echo "GRUB executable: $GRUB"
 echo "Device map:      $MAP"
 echo "Root partition:  $GRUB_ROOT"
 echo "Target disk:     $TARGET_DISK"
+echo "LBA mode:        $([ "$GRUB_LBA" -eq 1 ] && echo enabled || echo disabled)"
 echo
 
 "$GRUB" --batch --device-map="$MAP" <<GRUBEOF
 root $GRUB_ROOT
-setup $GRUB_DISK_ROOT
+setup $GRUB_SETUP_OPTION $GRUB_DISK_ROOT
 quit
 GRUBEOF
 
@@ -509,6 +528,7 @@ echo "System files installed on: $TARGET_PART"
 echo "GRUB Legacy target disk:   $TARGET_DISK"
 echo "GRUB BIOS disk:            $GRUB_DISK"
 echo "GRUB partition:            $GRUB_ROOT"
+echo "GRUB LBA mode:             $([ "$GRUB_LBA" -eq 1 ] && echo enabled || echo disabled)"
 echo "Generated menu:            /boot/grub/menu.lst"
 echo "Temporary archive:         removed"
 echo
