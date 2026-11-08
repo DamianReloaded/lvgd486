@@ -378,24 +378,6 @@ You will be able to use the resulting knowledge to customize the distribution, i
 
 ---
 
-# [ END OF TRANSMISSION ]
-
-## Ready to Revive a 486?
-
-Whether you want to experiment in an emulator, build the system from scratch, or put a real vintage PC back to work, LVGD486 is about making game development on old hardware accessible and fun.
-
-Choose your tools, explore the source code, and start creating games for machines that still have plenty of life left in them.
-
----
-
-<p align="center">
-
-**LVGD486 :: VINTAGE HARDWARE / OPEN SOURCE / GAME DEVELOPMENT**
-
-</p>
-
----
-
 # [INSTALL] :: Install LVGD486 to Disk
 
 [Watch the video tutorial](https://www.youtube.com/watch?v=KM_DPYtLR3c)
