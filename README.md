@@ -396,28 +396,239 @@ Choose your tools, explore the source code, and start creating games for machine
 
 ---
 
-## [INSTALL] :: Install LVGD486 to Disk
+# [INSTALL] :: Install LVGD486 to Disk
 
-Check the [video tutorial](https://www.youtube.com/watch?v=KM_DPYtLR3c).
+[Watch the video tutorial](https://www.youtube.com/watch?v=KM_DPYtLR3c)
 
-Or get the [pre-installed VHD](https://github.com/DamianReloaded/vhd/raw/refs/heads/main/lvgd486dev.7z?download=).
+Or download the [pre-installed VHD](https://github.com/DamianReloaded/vhd/raw/refs/heads/main/lvgd486dev.7z?download=).
 
 This tutorial explains how to install LVGD486 from the bootable installation CD onto a hard disk. We will mount the installation media, identify the target disk, create a root partition and a swap partition, prepare both partitions, and run the installer.
 
-> [!WARNING]
-> **[!] DATA LOSS WARNING**
+> [!] **DATA LOSS WARNING**
 >
 > Partitioning and formatting can permanently destroy existing data. The commands below assume that `/dev/ide/host0/bus0/target0/lun0/disc` is the intended installation disk. Verify the device carefully before continuing. Do not proceed if you are unsure which disk you have selected.
 
-### 00 > Boot up LVGD CD or Floppy Disk
+## 00 > Boot up LVGD CD or Floppy Disk
 
 *NOTE: Legacy PCs may not have a BIOS option for booting from a CD. In that case, you will need to boot from the LVGD floppy disk, let the system detect your CD-ROM drives, mount the CD, partition the disk, and run the installer. You will need to do this in an 86Box machine emulating a motherboard with an older BIOS.*
 
 Insert the installation CD or floppy and boot from it. Once startup is complete, you should be presented with a bash prompt. The floppy is slow, so wait for it.
 
-### 01 > Mount the Installation CD
+## 01 > Mount the Installation CD
 
 First, mount the CD-ROM containing the LVGD486 installer. This is important because the `mke2fs` and `mkswap` utilities used to prepare the target partitions are provided by the installation media.
 
-```bash
-mount /dev/cdroms/cdrom0 /install-media/
+    mount /dev/cdroms/cdrom0 /install-media/
+
+The installation files should now be accessible under `/install-media/`.
+
+## 02 > Identify the Target Disk
+
+List the available disks and partitions:
+
+    fdisk -l
+
+On this Linux 2.4-based system, an unpartitioned IDE disk may appear using the following device naming format:
+
+    /dev/ide/host0/bus0/target0/lun0/disc
+
+The `host0` component identifies an IDE host adapter. Depending on the hardware and driver configuration, additional disks may appear under other host, bus, target, or LUN numbers.
+
+Partitions on this disk use the same device path, with `part1`, `part2`, and so on, at the end.
+
+    /dev/ide/host0/bus0/target0/lun0/part1
+    /dev/ide/host0/bus0/target0/lun0/part2
+
+**>> Confirm the disk before partitioning.**
+
+Make sure the selected device is the intended installation target, not a disk containing data you want to preserve.
+
+## 03 > Create the Root and Swap Partitions
+
+Start the partition editor for the target disk:
+
+    fdisk /dev/ide/host0/bus0/target0/lun0/disc
+
+We will create two primary partitions. The first will contain the LVGD486 root filesystem, while the second will be used for swap.
+
+### Create the Root Partition
+
+At the `fdisk` prompt, enter `n` to create a new partition:
+
+    n
+
+Select a primary partition:
+
+    p
+
+Choose partition number 1:
+
+    1
+
+When prompted for the first sector, press Enter to accept the default starting position:
+
+    [Press Enter]
+
+At the last sector prompt, specify the size of the root partition. For example, to create a 500 MB partition. Press Enter to select the default.
+
+    +500M
+
+If you have a 2 GB disk and you want to reserve around 100 MB for the swap partition, create the root partition starting at 1 (the default) and specify a size of `+2024M`.
+
+    +2024M
+
+Adjust this value according to the space required by your installation and the total capacity of the disk. Remember to leave enough unallocated space for the swap partition.
+
+### Create the Swap Partition
+
+The required swap size depends on the amount of physical RAM installed in the machine and the memory demands of the software you intend to run. A useful starting point for these memory-constrained systems is approximately twice the installed RAM.
+
+For example, a machine with 8 MB of RAM could use approximately 16 MB of swap. This is a guideline, not a strict requirement. Choose a size that fits your hardware and available disk capacity.
+
+On this particular disk, one cylinder represents approximately 4 MB. Therefore, 16 MB would require approximately 4 cylinders. Cylinder sizes vary depending on disk geometry, so these values should not be assumed to apply to every disk.
+
+Enter `n` again to create the second partition:
+
+    n
+
+Select a primary partition:
+
+    p
+
+Choose partition number 2:
+
+    2
+
+Press Enter to accept the default starting sector:
+
+    [Press Enter]
+
+Specify the size of the swap partition. For example, to create 16 MB of swap, type `+16M`, or press Enter to use all the remaining available free space.
+
+    +16M (or press [Enter])
+
+### Set the Swap Partition Type
+
+Change the partition type using the `t` command:
+
+    t
+
+Select partition 2:
+
+    2
+
+Enter `82`, the Linux swap partition type:
+
+    82
+
+Review the resulting partition layout by pressing `p` at the `fdisk` command prompt. Partition 1 should be the Linux root partition, and partition 2 should be marked as Linux swap.
+
+If everything looks correct, write the changes to disk:
+
+    w
+
+This writes the new partition table to disk.
+
+> [!] **PARTITION TABLE CHANGES**
+>
+> Writing the partition table can overwrite existing partition information. These steps are intended for a disk you are prepared to repartition. Stop if the displayed layout does not match your intentions.
+
+## 04 > Verify the New Partitions
+
+List the disks and partitions again:
+
+    fdisk -l
+
+You should now see two partitions:
+
+    /dev/ide/host0/bus0/target0/lun0/part1
+    /dev/ide/host0/bus0/target0/lun0/part2
+
+Partition 1 will contain the root filesystem. Partition 2 will be used for swap. Verify their sizes and partition types before continuing.
+
+## 05 > Format the Root Partition as ext2
+
+LVGD486 uses the ext2 filesystem for its root partition. Create the filesystem on partition 1:
+
+    mke2fs -F -r 0 -b 1024 /dev/ide/host0/bus0/target0/lun0/part1
+
+The options specify a forced filesystem creation, revision 0 filesystem format, and a 1024-byte block size. These settings are intended for compatibility with the legacy target system.
+
+> [!] **FORMATTING ERASES DATA**
+>
+> This command creates a new filesystem on partition 1 and destroys existing filesystem data there. Double-check the device path before running it.
+
+### Initialize the Swap Partition
+
+Initialize partition 2 as swap space:
+
+    mkswap /dev/ide/host0/bus0/target0/lun0/part2
+
+This prepares the partition for use as virtual memory. It does not activate swap immediately; we will configure the installed system to enable it automatically during startup.
+
+## 06 > Run the LVGD486 Installer
+
+Change to the directory containing the installer:
+
+    cd /install-media
+
+Run the installation script and pass the root partition as its argument, and optionally the word `lba` as the second parameter if you're installing this on an old PC or an 86Box VM. VirtualBox works without passing `lba`.
+
+    ./install.sh /dev/ide/host0/bus0/target0/lun0/part1 [lba]
+
+The installer will copy the LVGD486 system to partition 1. The swap partition is not passed to the installer because it is initialized separately and enabled through the startup script.
+
+On slower 486-class machines, this process may take some time. Allow the installer to finish and check for any reported errors.
+
+**>> Be patient. Older hardware takes time.**
+
+### 06.1 > Users
+
+    user: root
+    password: root
+
+    user: game
+    password: game
+
+You can become root by issuing:
+
+    su root
+    Password: root
+
+In this humble game console style distro, the idea of running games with a less privileged user `game` is mainly to prevent accidental modification of system files.
+
+## 07 > Configure Swap at Startup
+
+LVGD486 uses a dedicated swap partition to provide additional virtual memory when physical RAM is insufficient. To enable it automatically, add the following command to the installed system's **`/etc/rcS`** startup script:
+
+    swapon /dev/ide/host0/bus0/target0/lun0/part2
+
+Place this command during system initialization, before services or applications that may need additional memory are started.
+
+The command activates the swap partition each time LVGD486 boots. The kernel can then use it when additional memory is needed.
+
+**>> Swap is now enabled automatically at boot.**
+
+## 08 > Reboot into LVGD486
+
+Once the installer has completed successfully and the startup script has been configured, remove the installation CD and reboot the machine.
+
+If the hard disk is bootable, the bootloader has been installed correctly, and the BIOS is configured to boot from the hard disk, the system should start LVGD486 directly from the installed disk.
+
+You can convert the VDI hard disk you created in VirtualBox to VHD using `qemu-img.exe`:
+
+    .\qemu-img.exe convert -f vdi -O vpc disk.vdi disk.vhd
+
+Then you can attach it to an 86Box virtual machine if you want to emulate the 486 hardware accurately. Remember to auto-detect your hard disk in the BIOS inside the running virtual machine.
+
+In 86Box, remember to set the sound card to **[ISA 16] Sound Blaster 16 PnP**. Then go to the MIDI tab and set MIDI Out Device to **FluidSynth**, press the **Configure** button, and set a nice SoundFont for your MIDI emulation.
+
+### 08.1 > GameLauncher
+
+Right after the system boots up, the GameLauncher will run. You can quit it by pressing ESCAPE. You can configure the game list by editing the file:
+
+    /games/lvgd/games.lst
+
+**>> Installation complete.**
+
+Your LVGD486 system is now ready to boot from the hard disk, with its root filesystem and swap space configured. Welcome to low-level gaming on vintage hardware.
