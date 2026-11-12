@@ -1,0 +1,75 @@
+_____________________________________________________________________
+
+1. CPU — 65816 processor
+Critical subsystem
+Function	Purpose (initial assessment)
+cpu_reset	Initialize CPU registers and processor state
+cpu_runOpcode	Execute one 65816 instruction
+cpu_getFlags	Retrieve processor status flags
+cpu_setFlags	Set processor status flags
+getProcessorStateCpu	Retrieve CPU state
+snes_printCpuLine	CPU execution/debugging output
+
+Where called: zelda_cpu_infra.c
+
+This is the most important group to investigate. In particular, cpu_runOpcode suggests that some original SNES machine code is still being executed. We need to establish exactly how much of the game depends on it.
+_____________________________________________________________________
+
+2. PPU — Picture Processing Unit
+Critical subsystem
+Function	Purpose (initial assessment)
+ppu_init	Initialize video subsystem
+ppu_reset	Reset video state
+ppu_write	Write to SNES video registers
+ppu_runLine	Render/process a scanline
+ppu_saveload	Save or restore PPU state
+PpuBeginDrawing	Begin frame rendering
+PpuSetExtraSideSpace	Configure additional horizontal space
+PpuSetMode7PerspectiveCorrection	Configure Mode 7 rendering
+
+Where called: zelda_rtl.c
+
+This is where our native VGA implementation will eventually do most of its work.
+
+For example, ppu_write could translate SNES register writes into updates to our own video state, while ppu_runLine could render the corresponding scanline into the PC framebuffer.
+
+We should not assume that every SNES register needs an exact hardware equivalent.
+_____________________________________________________________________
+
+3. DMA — Direct Memory Access
+Function	Purpose (initial assessment)
+dma_init	Initialize DMA channels
+dma_reset	Reset DMA state
+dma_write	Write to DMA registers
+dma_startDma	Start a DMA transfer
+dma_doDma	Execute a DMA operation
+dma_saveload	Save or restore DMA state
+
+Where called: zelda_rtl.c, zelda_cpu_infra.c
+
+DMA transfers data between SNES memory regions and peripherals. We may be able to implement much of this using ordinary memory copies, depending on which transfer modes the game actually uses.
+_____________________________________________________________________
+
+4. DSP — SNES audio processor
+Function	Purpose (initial assessment)
+dsp_init	Initialize audio DSP
+dsp_reset	Reset DSP state
+dsp_write	Write to DSP registers
+dsp_cycle	Advance DSP processing
+dsp_saveload	Save or restore DSP state
+
+Where called: spc_player.c, zelda_rtl.c
+
+This is a separate issue from the main CPU. The SNES audio system uses the SPC700 processor and its DSP. We need to investigate whether we can replace the audio playback pipeline with our native sound system or whether the original audio processing is required.
+_____________________________________________________________________
+
+5. SNES system interface
+Function	Purpose (initial assessment)
+snes_init	Initialize SNES system
+snes_loadRom	Load the SNES ROM
+snes_write	Write to SNES memory-mapped registers
+snes_doAutoJoypad	Process controller input
+
+Where called: zelda_cpu_infra.c
+
+These functions coordinate the emulated system and are likely candidates for replacement by our own platform layer.
