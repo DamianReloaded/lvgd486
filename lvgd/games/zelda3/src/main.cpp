@@ -1,3 +1,4 @@
+// main.cpp
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +14,8 @@
 #include "../vgd/Display/DisplayMode13h.hpp"
 #include "../vgd/Input/Keyboard.hpp"
 #include "../vgd/Util/Clock.hpp"
-
+#include "../vgd/Font/BmpFont.hpp"
+#include "../vgd/Font/FontArcade01.hpp"
 
 extern "C"
 {
@@ -32,9 +34,44 @@ extern "C"
 #include "config_keyboard.hpp"
 
 static bool g_run_without_emu = false;
-
+static int g_input1_state;
 static int g_ppu_render_flags = 0;
-static int g_snes_width, g_snes_height;
+
+// ------------------------------------------------------------
+// Frame skipping
+// ------------------------------------------------------------
+
+static int g_frameskip = 3;
+static int g_frameskipCounter = 0;
+
+static bool ShouldRenderFrame()
+{
+    if (g_frameskipCounter >= g_frameskip)
+    {
+        g_frameskipCounter = 0;
+        return true;
+    }
+
+    g_frameskipCounter++;
+    return false;
+}
+
+// ------------------------------------------------------------
+// Input
+// ------------------------------------------------------------
+
+static bool g_keyDown[vgd::Keyboard::KeyCount];
+static bool g_turbo = false;
+static bool g_turbo_all_the_time = false;
+
+static const uint8 kKbdRemap[] =
+{
+    0, 4, 5, 6, 7, 2, 3, 8, 0, 9, 1, 10, 11
+};
+
+// ------------------------------------------------------------
+// Forward declarations
+// ------------------------------------------------------------
 
 static bool LoadRom(const char* filename);
 static void LoadLinkGraphics();
@@ -43,23 +80,330 @@ static void LoadAssets();
 static void SwitchDirectory();
 static void UpdateVgaPalette();
 static void DrawPpuFrame();
+static void DrawFpsOverlay();
 
 static vgd::DisplayMode13h Display;
 static vgd::Keyboard KeyboardInput;
+static vgd::FontArcade01 g_fpsFont;
 
 static bool g_displayInitialized = false;
 static bool g_keyboardInitialized = false;
 
 static uint8 g_replay_turbo = true;
 
-static uint8* g_ppuBuffer = NULL;
-static size_t g_ppuBufferSize = 0;
 
-static uint8 g_vgaPalette[256 * 3];
-static uint8 g_colorLookup[4096];
-static uint16 g_lastCgram[256];
-static uint8 g_lastBrightness = 0;
-static bool g_paletteInitialized = false;
+static uint32 g_minPaletteUpdateIntervalMs = 2000;
+static uint64_t g_lastPaletteUpdateTime = 0;
+static bool g_paletteMustUpdate = true;
+
+static uint32 GetKeyboardModifiers()
+{
+    uint32 modifiers = 0;
+
+    if (g_keyDown[vgd::Keyboard::KeyLeftAlt] ||
+        g_keyDown[vgd::Keyboard::KeyRightAlt])
+        modifiers |= KeyMod_Alt;
+
+    if (g_keyDown[vgd::Keyboard::KeyLeftShift] ||
+        g_keyDown[vgd::Keyboard::KeyRightShift])
+        modifiers |= KeyMod_Shift;
+
+    if (g_keyDown[vgd::Keyboard::KeyLeftCtrl] ||
+        g_keyDown[vgd::Keyboard::KeyRightCtrl])
+        modifiers |= KeyMod_Ctrl;
+
+    return modifiers;
+}
+
+static void HandleCommand(uint32 command, bool pressed)
+{
+    // Controller buttons.
+    if (command >= kKeys_Controls &&
+        command <= kKeys_Controls_Last)
+    {
+        uint32 index = command;
+
+        if (index < sizeof(kKbdRemap) / sizeof(kKbdRemap[0]))
+        {
+            uint32 mask = 1u << kKbdRemap[index];
+
+            if (pressed)
+                g_input1_state |= mask;
+            else
+                g_input1_state &= ~mask;
+        }
+
+        return;
+    }
+
+    // Turbo is a held key.
+    if (command == kKeys_Turbo)
+    {   
+        g_turbo = pressed;
+        return;
+    }
+
+    // The remaining commands are triggered on key-down.
+    if (!pressed)
+        return;
+
+    // Load state.
+    if (command >= kKeys_Load &&
+        command <= kKeys_Load_Last)
+    {
+        SaveLoadSlot(kSaveLoad_Load, command - kKeys_Load);
+        return;
+    }
+
+    // Save state.
+    if (command >= kKeys_Save &&
+        command <= kKeys_Save_Last)
+    {
+        SaveLoadSlot(kSaveLoad_Save, command - kKeys_Save);
+        return;
+    }
+}
+
+static void HandleKeyboardEvent(const vgd::Keyboard::Event& event)
+{
+    if (event.key <= vgd::Keyboard::KeyUnknown ||
+        event.key >= vgd::Keyboard::KeyCount)
+        return;
+
+    bool pressed = event.type == vgd::Keyboard::EventKeyDown;
+
+    // Update our event-local key state before resolving modifiers.
+    // This avoids using the final keyboard state for earlier events
+    // in the same update batch.
+    g_keyDown[event.key] = pressed;
+
+    uint32 modifiers = GetKeyboardModifiers();
+    int command = FindCmdForVgdKey(event.key, modifiers);
+
+    if (command != 0)
+        HandleCommand((uint32)command, pressed);
+}
+
+static void UpdateInput(bool& running)
+{
+    KeyboardInput.Update();
+
+    if (!KeyboardInput.IsConsoleActive())
+    {
+        // Avoid stuck buttons if this virtual terminal loses focus.
+        memset(g_keyDown, 0, sizeof(g_keyDown));
+        g_input1_state = 0;
+        g_turbo = false;
+        return;
+    }
+
+    while (KeyboardInput.HasEvent())
+    {
+        vgd::Keyboard::Event event = KeyboardInput.ReadEvent();
+
+        if (event.type != vgd::Keyboard::EventKeyDown &&
+            event.type != vgd::Keyboard::EventKeyUp)
+            continue;
+
+        if (event.type == vgd::Keyboard::EventKeyDown &&
+            event.key == vgd::Keyboard::KeyEscape)
+        {
+            running = false;
+            break;
+        }
+
+        HandleKeyboardEvent(event);
+    }
+}
+
+
+// ------------------------------------------------------------
+// FPS counter
+// ------------------------------------------------------------
+
+static uint64_t g_fpsLastUpdate = 0;
+static uint32 g_fpsFrameCount = 0;
+static uint32 g_fps = 60;
+
+struct FpsPixelWriter
+{
+    uint8* Framebuffer;
+    int Pitch;
+    int Width;
+    int Height;
+
+    void operator()(int x, int y, uint8 color) const
+    {
+        if (x >= 0 && x < Width && y >= 0 && y < Height)
+            Framebuffer[y * Pitch + x] = color;
+    }
+};
+
+static void DrawFpsOverlay()
+{
+    uint64_t now = vgd::Clock::GetTimeNanoseconds();
+
+    if (g_fpsLastUpdate == 0)
+        g_fpsLastUpdate = now;
+
+    g_fpsFrameCount++;
+
+    uint64_t elapsed = now - g_fpsLastUpdate;
+
+    if (elapsed >= 1000000000ULL)
+    {
+        g_fps = (uint32)((uint64_t)g_fpsFrameCount *
+                         1000000000ULL / elapsed);
+
+        g_fpsFrameCount = 0;
+        g_fpsLastUpdate = now;
+    }
+
+    char text[16];
+    snprintf(text, sizeof(text), "FPS %u", g_fps);
+
+    FpsPixelWriter writer =
+    {
+        Display.GetBackBuffer(),
+        Display.GetBackBufferPitch(),
+        Display.GetWidth(),
+        Display.GetHeight()
+    };
+
+    vgd::BMPFontDrawText(
+        g_fpsFont,
+        text,
+        4, 4,
+        8, 8,
+        1,
+        255,
+        writer.Width,
+        writer.Height,
+        writer);
+}
+
+// ------------------------------------------------------------
+// Profiling
+// ------------------------------------------------------------
+
+enum ProfileSection
+{
+    ProfileKeyboard,
+    ProfileGame,
+    ProfilePalette,
+    ProfilePpu,
+    ProfileConversion,
+    ProfilePresent,
+    ProfileWait,
+    ProfileSectionCount
+};
+
+struct ProfileTimer
+{
+    uint64_t Total;
+    uint64_t Minimum;
+    uint64_t Maximum;
+    uint32 Count;
+};
+
+static ProfileTimer g_profileTimers[ProfileSectionCount];
+static FILE* g_profileFile = NULL;
+static uint32 g_profileFrameCount = 0;
+
+static const char* g_profileNames[ProfileSectionCount] =
+{
+    "Keyboard",
+    "ZeldaRunFrame",
+    "UpdateVgaPalette",
+    "ZeldaDrawPpuFrame",
+    "FramebufferConversion",
+    "DisplayPresent",
+    "WaitForNextFrame"
+};
+
+static uint64_t ProfileBegin()
+{
+    return vgd::Clock::GetTimeNanoseconds();
+}
+
+static void ProfileEnd(ProfileSection section, uint64_t startTime)
+{
+    uint64_t elapsed = vgd::Clock::GetTimeNanoseconds() - startTime;
+    ProfileTimer* timer = &g_profileTimers[section];
+
+    timer->Total += elapsed;
+
+    if (timer->Count == 0 || elapsed < timer->Minimum)
+        timer->Minimum = elapsed;
+
+    if (elapsed > timer->Maximum)
+        timer->Maximum = elapsed;
+
+    timer->Count++;
+}
+
+static void ProfileWrite()
+{
+    if (!g_profileFile)
+        return;
+
+    fprintf(g_profileFile, "\n--- Profile: %u displayed frames ---\n", g_profileFrameCount);
+    fprintf(g_profileFile, "Frameskip: %d\n", g_frameskip);
+
+    for (int i = 0; i < ProfileSectionCount; i++)
+    {
+        ProfileTimer* timer = &g_profileTimers[i];
+
+        if (timer->Count == 0)
+            continue;
+
+        double average = (double)timer->Total / timer->Count / 1000000.0;
+        double minimum = (double)timer->Minimum / 1000000.0;
+        double maximum = (double)timer->Maximum / 1000000.0;
+
+        fprintf(g_profileFile,
+            "%-24s calls=%u avg=%8.3f ms min=%8.3f ms max=%8.3f ms\n",
+            g_profileNames[i],
+            timer->Count,
+            average,
+            minimum,
+            maximum);
+    }
+
+    fflush(g_profileFile);
+
+    memset(g_profileTimers, 0, sizeof(g_profileTimers));
+    g_profileFrameCount = 0;
+}
+
+static void ProfileInitialize()
+{
+    g_profileFile = fopen("log.txt", "w");
+
+    if (!g_profileFile)
+    {
+        fprintf(stderr, "Warning: Unable to create log.txt\n");
+        return;
+    }
+
+    fprintf(g_profileFile, "LVGD486 performance profiling\n");
+    fprintf(g_profileFile, "Times are milliseconds; statistics are accumulated over 120 displayed frames.\n");
+    fflush(g_profileFile);
+}
+
+static void ProfileShutdown()
+{
+    if (!g_profileFile)
+        return;
+
+    ProfileWrite();
+    fclose(g_profileFile);
+    g_profileFile = NULL;
+}
+
+// ------------------------------------------------------------
+// Zelda callbacks
+// ------------------------------------------------------------
 
 extern "C"
 {
@@ -81,188 +425,72 @@ extern "C"
     }
 }
 
-static void WaitForNextFrame(uint64_t& nextFrameTime)
+// ------------------------------------------------------------
+// Frame timing
+// ------------------------------------------------------------
+
+static void WaitForNextFrame(uint64_t frameStartTime)
 {
     const uint64_t frameDuration = 1000000000ULL / 60;
 
-    nextFrameTime += frameDuration;
-
     uint64_t now = vgd::Clock::GetTimeNanoseconds();
+    uint64_t elapsed = now - frameStartTime;
 
-    if (nextFrameTime > now)
-    {
-        uint64_t remaining = nextFrameTime - now;
+    if (elapsed >= frameDuration)
+        return;
 
-        struct timeval timeout;
-        timeout.tv_sec = remaining / 1000000000ULL;
-        timeout.tv_usec = (remaining % 1000000000ULL) / 1000ULL;
+    uint64_t remaining = frameDuration - elapsed;
 
-        select(0, NULL, NULL, NULL, &timeout);
-    }
-    else
-    {
-        nextFrameTime = now;
-    }
+    struct timeval timeout;
+    timeout.tv_sec = remaining / 1000000000ULL;
+    timeout.tv_usec = (remaining % 1000000000ULL) / 1000ULL;
+
+    select(0, NULL, NULL, NULL, &timeout);
 }
 
-static uint8 ExpandColor(uint8 value, uint8 brightness)
-{
-    return (uint8)((((value << 3) | (value >> 2)) * brightness) / 15);
-}
+// ------------------------------------------------------------
+// VGA palette
+// ------------------------------------------------------------
 
 static void UpdateVgaPalette()
 {
-    Ppu* ppu = g_zenv.ppu;
-
-    if (g_paletteInitialized &&
-        ppu->brightness == g_lastBrightness &&
-        memcmp(ppu->cgram, g_lastCgram, sizeof(g_lastCgram)) == 0)
+    if (PpuUpdatePalette(g_zenv.ppu))
     {
-        return;
+        if (!Display.SetPalette((uint8*)PpuGetVgaPalette()))
+            Die("Failed to update VGA palette");
     }
-
-    for (int i = 0; i < 256; i++)
-    {
-        uint16 color = ppu->cgram[i];
-
-        uint8 r = ExpandColor(color & 0x1f, ppu->brightness);
-        uint8 g = ExpandColor((color >> 5) & 0x1f, ppu->brightness);
-        uint8 b = ExpandColor((color >> 10) & 0x1f, ppu->brightness);
-
-        g_vgaPalette[i * 3 + 0] = r;
-        g_vgaPalette[i * 3 + 1] = g;
-        g_vgaPalette[i * 3 + 2] = b;
-    }
-
-    if (!Display.SetPalette(g_vgaPalette))
-        Die("Failed to update VGA palette");
-
-    // Build a 4:4:4 RGB lookup table.
-    // Each entry contains the nearest color in the SNES CGRAM palette.
-
-    for (int rIndex = 0; rIndex < 16; rIndex++)
-    {
-        int r = (rIndex << 4) | 8;
-
-        for (int gIndex = 0; gIndex < 16; gIndex++)
-        {
-            int g = (gIndex << 4) | 8;
-
-            for (int bIndex = 0; bIndex < 16; bIndex++)
-            {
-                int b = (bIndex << 4) | 8;
-
-                uint32 bestDistance = 0xffffffff;
-                uint8 bestIndex = 0;
-
-                for (int i = 0; i < 256; i++)
-                {
-                    int dr = r - g_vgaPalette[i * 3 + 0];
-                    int dg = g - g_vgaPalette[i * 3 + 1];
-                    int db = b - g_vgaPalette[i * 3 + 2];
-
-                    uint32 distance =
-                        (uint32)(dr * dr + dg * dg + db * db);
-
-                    if (distance < bestDistance)
-                    {
-                        bestDistance = distance;
-                        bestIndex = (uint8)i;
-
-                        if (distance == 0)
-                            break;
-                    }
-                }
-
-                int lookupIndex =
-                    (rIndex << 8) |
-                    (gIndex << 4) |
-                    bIndex;
-
-                g_colorLookup[lookupIndex] = bestIndex;
-            }
-        }
-    }
-
-    memcpy(g_lastCgram, ppu->cgram, sizeof(g_lastCgram));
-    g_lastBrightness = ppu->brightness;
-    g_paletteInitialized = true;
 }
+
+// ------------------------------------------------------------
+// PPU rendering and display conversion
+// ------------------------------------------------------------
 
 static void DrawPpuFrame()
 {
-    int renderScale = PpuGetCurrentRenderScale(g_zenv.ppu, g_ppu_render_flags);
-
-    int renderWidth = g_snes_width * renderScale;
-    int renderHeight = g_snes_height * renderScale;
-    int renderPitch = renderWidth * 4;
-
-    size_t requiredSize = (size_t)renderPitch * renderHeight;
-
-    if (requiredSize > g_ppuBufferSize)
-    {
-        uint8* newBuffer = (uint8*)realloc(g_ppuBuffer, requiredSize);
-
-        if (!newBuffer)
-            Die("Failed to allocate PPU render buffer");
-
-        g_ppuBuffer = newBuffer;
-        g_ppuBufferSize = requiredSize;
-    }
-
-    ZeldaDrawPpuFrame(g_ppuBuffer, renderPitch, g_ppu_render_flags);
-
-    int displayWidth = Display.GetWidth();
-    int displayHeight = Display.GetHeight();
-    int displayPitch = Display.GetBackBufferPitch();
-
     uint8* destination = Display.GetBackBuffer();
 
     if (!destination)
         Die("Failed to obtain VGA back buffer");
 
-    Display.Clear(0);
+    int displayWidth = Display.GetWidth();
+    int displayHeight = Display.GetHeight();
+    int displayPitch = Display.GetBackBufferPitch();
 
-    int copyWidth = renderWidth < displayWidth ? renderWidth : displayWidth;
-    int copyHeight = renderHeight < displayHeight ? renderHeight : displayHeight;
+    // Direct PPU rendering into the VGA framebuffer.
+    uint64_t startTime = ProfileBegin();
 
-    int sourceX = (renderWidth - copyWidth) / 2;
-    int sourceY = (renderHeight - copyHeight) / 2;
+    ZeldaDrawPpuFrame(
+        destination,
+        displayPitch,
+        g_ppu_render_flags
+    );
 
-    int destinationX = (displayWidth - copyWidth) / 2;
-    int destinationY = (displayHeight - copyHeight) / 2;
-
-    for (int y = 0; y < copyHeight; y++)
-    {
-        const uint8* source =
-            g_ppuBuffer +
-            (size_t)(sourceY + y) * renderPitch +
-            sourceX * 4;
-
-        uint8* output =
-            destination +
-            (size_t)(destinationY + y) * displayPitch +
-            destinationX;
-
-        for (int x = 0; x < copyWidth; x++)
-        {
-            // PPU output is 32-bit BGRA in memory.
-            uint8 b = source[x * 4 + 0];
-            uint8 g = source[x * 4 + 1];
-            uint8 r = source[x * 4 + 2];
-
-            int lookupIndex =
-                ((r >> 4) << 8) |
-                ((g >> 4) << 4) |
-                (b >> 4);
-
-            output[x] = g_colorLookup[lookupIndex];
-        }
-    }
-
-    if (!Display.Present())
-        Die("VGA frame presentation failed");
+    ProfileEnd(ProfilePpu, startTime);
 }
+
+// ------------------------------------------------------------
+// ROM loading
+// ------------------------------------------------------------
 
 static bool LoadRom(const char* filename)
 {
@@ -277,6 +505,10 @@ static bool LoadRom(const char* filename)
 
     return result;
 }
+
+// ------------------------------------------------------------
+// Link graphics
+// ------------------------------------------------------------
 
 static bool ParseLinkGraphics(uint8* file, size_t length)
 {
@@ -322,6 +554,10 @@ static void LoadLinkGraphics()
 
     free(file);
 }
+
+// ------------------------------------------------------------
+// Assets
+// ------------------------------------------------------------
 
 static void LoadAssets()
 {
@@ -379,6 +615,10 @@ static void LoadAssets()
     }
 }
 
+// ------------------------------------------------------------
+// Working directory
+// ------------------------------------------------------------
+
 static void SwitchDirectory()
 {
     char buffer[4096];
@@ -416,6 +656,10 @@ static void SwitchDirectory()
     }
 }
 
+// ------------------------------------------------------------
+// Main
+// ------------------------------------------------------------
+
 int main(int argc, char** argv)
 {
     argc--;
@@ -444,12 +688,7 @@ int main(int argc, char** argv)
     g_zenv.ppu->extraLeftRight =
         UintMin(g_config.extended_aspect_ratio, kPpuExtraLeftRight);
 
-    g_snes_width = g_config.extended_aspect_ratio * 2 + 256;
-    g_snes_height = g_config.extend_y ? 240 : 224;
-
-    g_wanted_zelda_features = g_config.features0;
-
-    uint32 g_ppu_render_flags =
+    g_ppu_render_flags =
         g_config.new_renderer * kPpuRenderFlags_NewRenderer |
         g_config.enhanced_mode7 * kPpuRenderFlags_4x4Mode7 |
         g_config.extend_y * kPpuRenderFlags_Height240 |
@@ -462,9 +701,6 @@ int main(int argc, char** argv)
         Die("Failed to initialize VGA Mode 13h");
 
     g_displayInitialized = true;
-
-    if (!Display.SetFrameRate(60))
-        fprintf(stderr, "Warning: Unable to set VGA frame rate limiter\n");
 
     if (!KeyboardInput.Initialize())
         Die("Failed to initialize keyboard input");
@@ -481,28 +717,46 @@ int main(int argc, char** argv)
     if (g_config.autosave)
         SaveLoadSlot(kSaveLoad_Load, 0);
 
-    
-    uint64_t nextFrameTime = vgd::Clock::GetTimeNanoseconds();
+    ProfileInitialize();
+
+    fprintf(stderr, "Frameskip: %d (render every %d frames)\n",
+        g_frameskip, g_frameskip + 1);
 
     bool running = true;
     uint32 frameCounter = 0;
 
     while (running)
     {
-        KeyboardInput.Update();
+        uint64_t frameStartTime = vgd::Clock::GetTimeNanoseconds();
 
-        if (KeyboardInput.IsConsoleActive() &&
-            KeyboardInput.WasPressed(vgd::Keyboard::KeyEscape))
-        {
-            running = false;
-        }
+        // ----------------------------------------------------
+        // Input
+        // ----------------------------------------------------
+
+        uint64_t startTime = ProfileBegin();
+
+        UpdateInput(running);
+
+        ProfileEnd(ProfileKeyboard, startTime);
 
         if (!running)
             break;
 
-        bool isReplay = ZeldaRunFrame(0);
+        // ----------------------------------------------------
+        // Game simulation
+        // ----------------------------------------------------
+
+        startTime = ProfileBegin();
+
+        bool isReplay = ZeldaRunFrame(g_input1_state);
+
+        ProfileEnd(ProfileGame, startTime);
 
         frameCounter++;
+
+        // ----------------------------------------------------
+        // Replay turbo
+        // ----------------------------------------------------
 
         if (isReplay && g_replay_turbo &&
             (frameCounter & 0x7f) != 0)
@@ -510,21 +764,60 @@ int main(int argc, char** argv)
             continue;
         }
 
-        UpdateVgaPalette();
+        // ----------------------------------------------------
+        // Frame skipping and rendering
+        // ----------------------------------------------------
 
-        DrawPpuFrame();
+        if (ShouldRenderFrame())
+        {
+            startTime = ProfileBegin();
+            UpdateVgaPalette();
+            ProfileEnd(ProfilePalette, startTime);
 
-        WaitForNextFrame(nextFrameTime);
+            DrawPpuFrame();
+        }
+
+        // Draw FPS overlay after conversion so the game cannot overwrite it.
+        DrawFpsOverlay();
+
+        // ----------------------------------------------------
+        // VGA presentation
+        // ----------------------------------------------------
+
+        startTime = ProfileBegin();
+
+        if (!Display.Present())
+            Die("VGA frame presentation failed");
+
+        ProfileEnd(ProfilePresent, startTime);
+
+        g_profileFrameCount++;
+
+        if (g_profileFrameCount >= 120)
+            ProfileWrite();
+
+        // ----------------------------------------------------
+        // Frame timing
+        // ----------------------------------------------------
+        g_turbo_all_the_time = g_fps < 30 ;
+        if (!g_turbo && !g_turbo_all_the_time)
+        {
+            startTime = ProfileBegin();
+            WaitForNextFrame(frameStartTime);
+            ProfileEnd(ProfileWait, startTime);
+        }
     }
+
+    // --------------------------------------------------------
+    // Shutdown
+    // --------------------------------------------------------
 
     if (g_config.autosave)
         SaveLoadSlot(kSaveLoad_Save, 0);
 
     ZeldaWriteSram();
 
-    free(g_ppuBuffer);
-    g_ppuBuffer = NULL;
-    g_ppuBufferSize = 0;
+    ProfileShutdown();
 
     if (g_keyboardInitialized)
     {

@@ -172,8 +172,12 @@ static void ConfigurePpuSideSpace() {
   PpuSetExtraSideSpace(g_zenv.ppu, extra_left, extra_right, extra_bottom);
 }
 
-void ZeldaDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
+
+void ZeldaDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags)
+{
   SimpleHdma hdma_chans[2];
+
+  render_flags |= kPpuRenderFlags_NewRenderer;
 
   PpuBeginDrawing(g_zenv.ppu, pixel_buffer, pitch, render_flags);
 
@@ -182,8 +186,9 @@ void ZeldaDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
   SimpleHdma_Init(&hdma_chans[0], &g_zenv.dma->channel[6]);
   SimpleHdma_Init(&hdma_chans[1], &g_zenv.dma->channel[7]);
 
-  // Cheat: Let the PPU impl know about the hdma perspective correction so it can avoid guessing.
-  if ((render_flags & kPpuRenderFlags_4x4Mode7) && g_zenv.ppu->mode == 7) {
+  // Let the PPU implementation know about the HDMA perspective correction.
+  if ((render_flags & kPpuRenderFlags_4x4Mode7) && g_zenv.ppu->mode == 7)
+  {
     if (hdma_chans[0].table == kMapModeHdma0)
       PpuSetMode7PerspectiveCorrection(g_zenv.ppu, kMapMode_Zooms1[0], kMapMode_Zooms1[223]);
     else if (hdma_chans[0].table == kMapModeHdma1)
@@ -194,23 +199,29 @@ void ZeldaDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
       PpuSetMode7PerspectiveCorrection(g_zenv.ppu, 0, 0);
   }
 
-  if (g_zenv.ppu->extraLeftRight != 0 || render_flags & kPpuRenderFlags_Height240)
+  if (g_zenv.ppu->extraLeftRight != 0 || (render_flags & kPpuRenderFlags_Height240))
     ConfigurePpuSideSpace();
 
-  int height = render_flags & kPpuRenderFlags_Height240 ? 240 : 224;
+  int height = (render_flags & kPpuRenderFlags_Height240) ? 240 : 224;
 
-  for (int i = 0; i <= height; i++) {
-    if (i == 128 && irq_flag) {
+  for (int i = 0; i <= height; i++)
+  {
+    if (i == 128 && irq_flag)
+    {
       zelda_ppu_write(BG3HOFS, selectfile_var8);
       zelda_ppu_write(BG3HOFS, selectfile_var8 >> 8);
       zelda_ppu_write(BG3VOFS, 0);
       zelda_ppu_write(BG3VOFS, 0);
-      if (irq_flag & 0x80) {
+
+      if (irq_flag & 0x80)
+      {
         irq_flag = 0;
         zelda_snes_dummy_write(NMITIMEN, 0x81);
       }
     }
+
     ppu_runLine(g_zenv.ppu, i);
+
     SimpleHdma_DoLine(&hdma_chans[0]);
     SimpleHdma_DoLine(&hdma_chans[1]);
   }
@@ -699,14 +710,14 @@ bool ZeldaRunFrame(int inputs) {
     inputs = StateRecorder_ReadNextReplayState(&state_recorder);
   } else {
     //    input_state = InputStateReadFromFile();
-    StateRecorder_Record(&state_recorder, inputs);
+    //StateRecorder_Record(&state_recorder, inputs);
 
     // This is whether APUI00 is true or false, this is used by the ancilla code.
     uint8 apui00 = ZeldaIsMusicPlaying();
     if (apui00 != g_ram[kRam_APUI00]) {
       g_ram[kRam_APUI00] = apui00;
       EmuSyncMemoryRegion(&g_ram[kRam_APUI00], 1);
-      StateRecorder_RecordPatchByte(&state_recorder, 0x648, &apui00, 1);
+      //StateRecorder_RecordPatchByte(&state_recorder, 0x648, &apui00, 1);
     }
 
     if (animated_tile_data_src != 0) {
@@ -715,13 +726,13 @@ bool ZeldaRunFrame(int inputs) {
       if (g_ram[kRam_BugsFixed] < kBugFix_Latest) {
         g_ram[kRam_BugsFixed] = kBugFix_Latest;
         EmuSyncMemoryRegion(&g_ram[kRam_BugsFixed], 1);
-        StateRecorder_RecordPatchByte(&state_recorder, kRam_BugsFixed, &g_ram[kRam_BugsFixed], 1);
+        //StateRecorder_RecordPatchByte(&state_recorder, kRam_BugsFixed, &g_ram[kRam_BugsFixed], 1);
       }
 
       if (enhanced_features0 != g_wanted_zelda_features) {
         enhanced_features0 = g_wanted_zelda_features;
         EmuSyncMemoryRegion(&enhanced_features0, sizeof(enhanced_features0));
-        StateRecorder_RecordPatchByte(&state_recorder, kRam_Features0, (uint8 *)&enhanced_features0, 4);
+        //StateRecorder_RecordPatchByte(&state_recorder, kRam_Features0, (uint8 *)&enhanced_features0, 4);
       }
     }
   }
